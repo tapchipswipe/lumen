@@ -35,6 +35,7 @@ clang -target arm64-apple-ios17.0 \
 #include <sys/stat.h>
 #include <time.h>
 #include <signal.h>
+#include <stdbool.h>
 
 typedef void* id;
 typedef void* SEL;
@@ -54,6 +55,7 @@ static objc_getClass_func f_objc_getClass;
 static sel_registerName_func f_sel_registerName;
 static objc_msgSend_func f_objc_msgSend;
 
+static id g_window = NULL;
 static id root_tab_vc = NULL;
 
 static id create_str(const char *utf8) {
@@ -195,7 +197,7 @@ static void on_export_files_clicked(id self, SEL _cmd) {
 // Music Intelligence Handlers
 static void on_create_playlist_clicked(id self, SEL _cmd) {
     printf("[LumenMobile] Generating Deep Work Focus Playlist via MediaPlayer...\n");
-    show_alert("Focus Playlist Generated", "⚡ Created 'Lumen Deep Work Flow' (128-140 BPM) with 25 curated ambient and electronic focus tracks synced to Apple Music!");
+    show_alert("Focus Playlist Generated", "⚡ Created 'Lumen Deep Work Flow' (128-140 BPM) with 25 curated ambient tracks synced to Apple Music!");
 }
 
 static void on_sync_audio_clicked(id self, SEL _cmd) {
@@ -252,7 +254,7 @@ static id build_radar_vc(CGRect bounds, id delegate) {
     
     id scroll = ((id (*)(Class, SEL))f_objc_msgSend)(uiScrollViewClass, f_sel_registerName("alloc"));
     scroll = ((id (*)(id, SEL, CGRect))f_objc_msgSend)(scroll, f_sel_registerName("initWithFrame:"), bounds);
-    CGSize contentSize = {bounds.width, 700};
+    CGSize contentSize = {bounds.width, 680};
     ((void (*)(id, SEL, CGSize))f_objc_msgSend)(scroll, f_sel_registerName("setContentSize:"), contentSize);
     
     id bgColor = ((id (*)(Class, SEL, double, double, double, double))f_objc_msgSend)(uiColorClass, f_sel_registerName("colorWithRed:green:blue:alpha:"), 0.04, 0.04, 0.06, 1.0);
@@ -405,7 +407,7 @@ static id build_music_vc(CGRect bounds, id delegate) {
     
     id scroll = ((id (*)(Class, SEL))f_objc_msgSend)(uiScrollViewClass, f_sel_registerName("alloc"));
     scroll = ((id (*)(id, SEL, CGRect))f_objc_msgSend)(scroll, f_sel_registerName("initWithFrame:"), bounds);
-    CGSize contentSize = {bounds.width, 700};
+    CGSize contentSize = {bounds.width, 680};
     ((void (*)(id, SEL, CGSize))f_objc_msgSend)(scroll, f_sel_registerName("setContentSize:"), contentSize);
     
     id bgColor = ((id (*)(Class, SEL, double, double, double, double))f_objc_msgSend)(uiColorClass, f_sel_registerName("colorWithRed:green:blue:alpha:"), 0.04, 0.04, 0.06, 1.0);
@@ -546,7 +548,7 @@ static id build_storage_vc(CGRect bounds, id delegate) {
     
     id scroll = ((id (*)(Class, SEL))f_objc_msgSend)(uiScrollViewClass, f_sel_registerName("alloc"));
     scroll = ((id (*)(id, SEL, CGRect))f_objc_msgSend)(scroll, f_sel_registerName("initWithFrame:"), bounds);
-    CGSize contentSize = {bounds.width, 700};
+    CGSize contentSize = {bounds.width, 680};
     ((void (*)(id, SEL, CGSize))f_objc_msgSend)(scroll, f_sel_registerName("setContentSize:"), contentSize);
     
     id bgColor = ((id (*)(Class, SEL, double, double, double, double))f_objc_msgSend)(uiColorClass, f_sel_registerName("colorWithRed:green:blue:alpha:"), 0.04, 0.04, 0.06, 1.0);
@@ -687,7 +689,7 @@ static id build_taxes_vc(CGRect bounds, id delegate) {
     
     id scroll = ((id (*)(Class, SEL))f_objc_msgSend)(uiScrollViewClass, f_sel_registerName("alloc"));
     scroll = ((id (*)(id, SEL, CGRect))f_objc_msgSend)(scroll, f_sel_registerName("initWithFrame:"), bounds);
-    CGSize contentSize = {bounds.width, 700};
+    CGSize contentSize = {bounds.width, 680};
     ((void (*)(id, SEL, CGSize))f_objc_msgSend)(scroll, f_sel_registerName("setContentSize:"), contentSize);
     
     id bgColor = ((id (*)(Class, SEL, double, double, double, double))f_objc_msgSend)(uiColorClass, f_sel_registerName("colorWithRed:green:blue:alpha:"), 0.04, 0.04, 0.06, 1.0);
@@ -828,7 +830,7 @@ static id build_sync_vc(CGRect bounds, id delegate) {
     
     id scroll = ((id (*)(Class, SEL))f_objc_msgSend)(uiScrollViewClass, f_sel_registerName("alloc"));
     scroll = ((id (*)(id, SEL, CGRect))f_objc_msgSend)(scroll, f_sel_registerName("initWithFrame:"), bounds);
-    CGSize contentSize = {bounds.width, 700};
+    CGSize contentSize = {bounds.width, 680};
     ((void (*)(id, SEL, CGSize))f_objc_msgSend)(scroll, f_sel_registerName("setContentSize:"), contentSize);
     
     id bgColor = ((id (*)(Class, SEL, double, double, double, double))f_objc_msgSend)(uiColorClass, f_sel_registerName("colorWithRed:green:blue:alpha:"), 0.04, 0.04, 0.06, 1.0);
@@ -956,9 +958,18 @@ static id build_sync_vc(CGRect bounds, id delegate) {
     return vc;
 }
 
-// MARK: - App Delegate & Launch
-static int appDidFinishLaunching(id self, SEL _cmd, id application, id launchOptions) {
-    printf("[LumenMobile v2.0.0] Launching Multi-Tab Diagnostic Controller...\n");
+// MARK: - App Delegate Property Implementations
+static id app_get_window(id self, SEL _cmd) {
+    return g_window;
+}
+
+static void app_set_window(id self, SEL _cmd, id win) {
+    g_window = win;
+}
+
+// MARK: - App Launch
+static bool appDidFinishLaunching(id self, SEL _cmd, id application, id launchOptions) {
+    printf("[LumenMobile v2.0.0] Bootstrapping UIWindow and TabBar...\n");
     
     Class uiWindowClass = f_objc_getClass("UIWindow");
     Class uiScreenClass = f_objc_getClass("UIScreen");
@@ -967,13 +978,14 @@ static int appDidFinishLaunching(id self, SEL _cmd, id application, id launchOpt
     Class uiColorClass = f_objc_getClass("UIColor");
     Class nsArrayClass = f_objc_getClass("NSArray");
     
-    if (!uiWindowClass || !uiScreenClass || !uiTabBarClass) return 1;
+    if (!uiWindowClass || !uiScreenClass || !uiTabBarClass) return true;
     
     id mainScreen = ((id (*)(Class, SEL))f_objc_msgSend)(uiScreenClass, f_sel_registerName("mainScreen"));
     CGRect bounds = ((CGRect (*)(id, SEL))f_objc_msgSend)(mainScreen, f_sel_registerName("bounds"));
     
     id window = ((id (*)(Class, SEL))f_objc_msgSend)(uiWindowClass, f_sel_registerName("alloc"));
     window = ((id (*)(id, SEL, CGRect))f_objc_msgSend)(window, f_sel_registerName("initWithFrame:"), bounds);
+    g_window = window;
     
     // Build 5 Tab View Controllers
     id radarVC = build_radar_vc(bounds, self);
@@ -1028,7 +1040,7 @@ static int appDidFinishLaunching(id self, SEL _cmd, id application, id launchOpt
     if (retainSel) {
         ((id (*)(id, SEL))f_objc_msgSend)(window, retainSel);
     }
-    return 1;
+    return true;
 }
 
 int main(int argc, char *argv[]) {
@@ -1058,7 +1070,15 @@ int main(int argc, char *argv[]) {
     
     Class nsObjectClass = f_objc_getClass("NSObject");
     Class appDelegateClass = f_allocateClass(nsObjectClass, "LumenAppDelegate", 0);
-    f_addMethod(appDelegateClass, f_sel_registerName("application:didFinishLaunchingWithOptions:"), (void*)appDidFinishLaunching, "c@:@@");
+    
+    // Window Property
+    f_addMethod(appDelegateClass, f_sel_registerName("window"), (void*)app_get_window, "@@:");
+    f_addMethod(appDelegateClass, f_sel_registerName("setWindow:"), (void*)app_set_window, "v@:@");
+    
+    // App Delegate Lifecycle
+    f_addMethod(appDelegateClass, f_sel_registerName("application:didFinishLaunchingWithOptions:"), (void*)appDidFinishLaunching, "B@:@@");
+    
+    // Actions
     f_addMethod(appDelegateClass, f_sel_registerName("flushBufferAction:"), (void*)on_flush_clicked, "v@:@");
     f_addMethod(appDelegateClass, f_sel_registerName("shareAction:"), (void*)on_share_clicked, "v@:@");
     f_addMethod(appDelegateClass, f_sel_registerName("exportFilesAction:"), (void*)on_export_files_clicked, "v@:@");
@@ -1070,9 +1090,14 @@ int main(int argc, char *argv[]) {
     f_addMethod(appDelegateClass, f_sel_registerName("exportTaxPackAction:"), (void*)on_export_taxpack_clicked, "v@:@");
     f_addMethod(appDelegateClass, f_sel_registerName("p2pPairAction:"), (void*)on_p2p_pair_clicked, "v@:@");
     f_addMethod(appDelegateClass, f_sel_registerName("vectorSearchAction:"), (void*)on_vector_search_clicked, "v@:@");
+    
     f_registerClass(appDelegateClass);
     
     UIApplicationMain_func f_uikitMain = (UIApplicationMain_func)dlsym(RTLD_DEFAULT, "UIApplicationMain");
+    if (!f_uikitMain && uikit) {
+        f_uikitMain = (UIApplicationMain_func)dlsym(uikit, "UIApplicationMain");
+    }
+    
     if (f_uikitMain) {
         id delName = create_str("LumenAppDelegate");
         return f_uikitMain(argc, argv, NULL, delName);
