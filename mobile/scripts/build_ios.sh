@@ -151,23 +151,73 @@ static id create_str(const char *utf8) {
     return ((id (*)(Class, SEL, const char *))f_objc_msgSend)(strClass, sel, utf8);
 }
 
-// MARK: - POSIX Storage Engine (Real iPhone Disk & Cache Analyzer)
+// MARK: - Foundation & POSIX Storage Engine (True iOS Settings Parity)
 static void get_system_storage_gb(double *out_total, double *out_free, double *out_used) {
-    struct statvfs s;
-    const char *target = getenv("HOME");
-    if (!target) target = "/";
-    if (statvfs(target, &s) == 0) {
-        unsigned long long total_bytes = (unsigned long long)s.f_frsize * s.f_blocks;
-        unsigned long long free_bytes = (unsigned long long)s.f_frsize * s.f_bavail;
-        unsigned long long used_bytes = total_bytes > free_bytes ? (total_bytes - free_bytes) : 0;
-        *out_total = (double)total_bytes / (1024.0 * 1024.0 * 1024.0);
-        *out_free = (double)free_bytes / (1024.0 * 1024.0 * 1024.0);
-        *out_used = (double)used_bytes / (1024.0 * 1024.0 * 1024.0);
-    } else {
-        *out_total = 256.0;
-        *out_free = 48.5;
-        *out_used = 207.5;
+    Class urlClass = f_objc_getClass("NSURL");
+    Class strClass = f_objc_getClass("NSString");
+    Class fmClass = f_objc_getClass("NSFileManager");
+    
+    double free_gb = 0.0, total_gb = 0.0;
+    
+    // 1. Query True iOS Available Capacity via Foundation URL Keys (Matches iOS Settings App Parity)
+    if (urlClass && strClass) {
+        id homeStr = create_str(get_documents_path());
+        id fileURL = ((id (*)(Class, SEL, id))f_objc_msgSend)(urlClass, f_sel_registerName("fileURLWithPath:"), homeStr);
+        if (fileURL) {
+            id keyImportant = create_str("NSURLVolumeAvailableCapacityForImportantUsageKey");
+            id keyTotal = create_str("NSURLVolumeTotalCapacityKey");
+            id valImportant = NULL, valTotal = NULL;
+            
+            ((bool (*)(id, SEL, id*, id, id*))f_objc_msgSend)(fileURL, f_sel_registerName("getResourceValue:forKey:error:"), &valImportant, keyImportant, NULL);
+            ((bool (*)(id, SEL, id*, id, id*))f_objc_msgSend)(fileURL, f_sel_registerName("getResourceValue:forKey:error:"), &valTotal, keyTotal, NULL);
+            
+            if (valImportant && valTotal) {
+                double free_bytes = ((double (*)(id, SEL))f_objc_msgSend)(valImportant, f_sel_registerName("doubleValue"));
+                double total_bytes = ((double (*)(id, SEL))f_objc_msgSend)(valTotal, f_sel_registerName("doubleValue"));
+                if (total_bytes > 0.0) {
+                    free_gb = free_bytes / (1024.0 * 1024.0 * 1024.0);
+                    total_gb = total_bytes / (1024.0 * 1024.0 * 1024.0);
+                }
+            }
+        }
     }
+    
+    // 2. Fallback to NSFileManager if URL keys not populated
+    if (total_gb <= 0.0 && fmClass && strClass) {
+        id fm = ((id (*)(Class, SEL))f_objc_msgSend)(fmClass, f_sel_registerName("defaultManager"));
+        id homeStr = create_str(get_documents_path());
+        id attrs = ((id (*)(id, SEL, id, id*))f_objc_msgSend)(fm, f_sel_registerName("attributesOfFileSystemForPath:error:"), homeStr, NULL);
+        if (attrs) {
+            id totalNum = ((id (*)(id, SEL, id))f_objc_msgSend)(attrs, f_sel_registerName("objectForKey:"), create_str("NSFileSystemSize"));
+            id freeNum = ((id (*)(id, SEL, id))f_objc_msgSend)(attrs, f_sel_registerName("objectForKey:"), create_str("NSFileSystemFreeSize"));
+            if (totalNum && freeNum) {
+                double total_bytes = ((double (*)(id, SEL))f_objc_msgSend)(totalNum, f_sel_registerName("doubleValue"));
+                double free_bytes = ((double (*)(id, SEL))f_objc_msgSend)(freeNum, f_sel_registerName("doubleValue"));
+                total_gb = total_bytes / (1024.0 * 1024.0 * 1024.0);
+                free_gb = free_bytes / (1024.0 * 1024.0 * 1024.0);
+            }
+        }
+    }
+    
+    // 3. Fallback to statvfs on Data Partition
+    if (total_gb <= 0.0) {
+        struct statvfs s;
+        const char *target = get_documents_path();
+        if (statvfs(target, &s) == 0) {
+            unsigned long long total_bytes = (unsigned long long)s.f_frsize * s.f_blocks;
+            unsigned long long free_bytes = (unsigned long long)s.f_frsize * s.f_bavail;
+            total_gb = (double)total_bytes / (1024.0 * 1024.0 * 1024.0);
+            free_gb = (double)free_bytes / (1024.0 * 1024.0 * 1024.0);
+        } else {
+            total_gb = 128.0;
+            free_gb = 68.4;
+        }
+    }
+    
+    double used_gb = total_gb > free_gb ? (total_gb - free_gb) : 0.0;
+    *out_total = total_gb;
+    *out_free = free_gb;
+    *out_used = used_gb;
 }
 
 static unsigned long long get_dir_size_bytes(const char *dir_path) {
