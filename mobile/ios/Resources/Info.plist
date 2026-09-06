@@ -17,9 +17,9 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.0.0</string>
+	<string>2.0.0</string>
 	<key>CFBundleVersion</key>
-	<string>1</string>
+	<string>2.0.0</string>
 	<key>CFBundleSupportedPlatforms</key>
 	<array>
 		<string>iPhoneOS</string>
@@ -84,7 +84,9 @@
 	<key>NSCameraUsageDescription</key>
 	<string>Lumen uses the camera to scan paper receipts and perform on-device OCR for Schedule-C tax deduction tracking.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>Lumen accesses your photo library to import digital receipts and expense screenshots.</string>
+	<string>Lumen scans large 4K videos and photos to optimize device storage and imports receipts.</string>
+	<key>NSAppleMusicUsageDescription</key>
+	<string>Lumen queries Apple Music library metrics to correlate acoustic tempo with deep work flow.</string>
 	<key>NSBluetoothAlwaysUsageDescription</key>
 	<string>Lumen reads connected AirPods and peripheral battery levels for acoustic and hardware context.</string>
 	<key>NSBluetoothPeripheralUsageDescription</key>
