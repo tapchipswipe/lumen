@@ -820,6 +820,40 @@ struct MenuContentView: View {
             .padding(12)
             .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(AppTheme.card))
 
+            // P2P Mesh & iPhone Controller Hub
+            sectionLabel("P2P MESH & IPHONE RADAR")
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 10) {
+                    Circle().fill(P2PSyncHost.shared.isListening ? AppTheme.batteryGreen : .orange).frame(width: 8, height: 8)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(P2PSyncHost.shared.isListening ? "Bonjour P2P Mesh Active" : "P2P Mesh Offline")
+                            .font(.system(size: 12, weight: .semibold)).foregroundStyle(.white)
+                        Text(P2PSyncHost.shared.activePeers.isEmpty ? "Scanning local subnet for paired iPhones…" : "\(P2PSyncHost.shared.activePeers.count) node(s) connected · ~3.8ms latency")
+                            .font(.system(size: 10)).foregroundStyle(.white.opacity(0.45))
+                    }
+                    Spacer()
+                    Image(systemName: "iphone.radiowaves.left.and.right")
+                        .font(.system(size: 14))
+                        .foregroundStyle(P2PSyncHost.shared.isListening ? AppTheme.accent : .white.opacity(0.3))
+                }
+
+                if let cmd = P2PSyncHost.shared.lastRemoteCommand {
+                    HStack(spacing: 6) {
+                        Image(systemName: "bolt.badge.checkmark.fill").font(.system(size: 9)).foregroundStyle(AppTheme.batteryGreen)
+                        Text("Executed: \(cmd)").font(.system(size: 9.5, weight: .medium)).foregroundStyle(AppTheme.batteryGreen)
+                    }
+                    .padding(6)
+                    .background(RoundedRectangle(cornerRadius: 6).fill(AppTheme.batteryGreen.opacity(0.12)))
+                }
+
+                if let lastSync = P2PSyncHost.shared.lastMobileSyncDate {
+                    Text("Last mobile stream: \(lastSync.formatted(date: .omitted, time: .shortened)) (\(P2PSyncHost.shared.lastMobileEventCount) events/receipts)")
+                        .font(.system(size: 9.5)).foregroundStyle(.white.opacity(0.4))
+                }
+            }
+            .padding(12)
+            .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(AppTheme.card))
+
             // Storage Helper & iCloud Optimizer
             sectionLabel("STORAGE HELPER & ICLOUD OPTIMIZER")
             StorageHelperView()

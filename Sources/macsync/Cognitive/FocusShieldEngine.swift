@@ -63,4 +63,14 @@ public final class FocusShieldEngine {
         isShieldActive = false
         Log.app.notice("[FocusShield] 🛡️ Focus Shield DISENGAGED.")
     }
+
+    @discardableResult
+    public func toggleShield() -> Bool {
+        if isShieldActive {
+            deactivateShield()
+        } else {
+            activateShield()
+        }
+        return isShieldActive
+    }
 }
