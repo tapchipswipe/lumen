@@ -19,7 +19,7 @@ mkdir -p "$DIST_DIR"
 APP_BUNDLE="$BUILD_DIR/Payload/LumenMobile.app"
 mkdir -p "$APP_BUNDLE"
 
-echo "📱 Step 1: Compiling Hardened Diagnostic Engine with Full Logging..."
+echo "📱 Step 1: Compiling Watchdog-Proof Diagnostic Engine (ARM64)..."
 SDK_PATH="$(xcrun --show-sdk-path)"
 
 clang -target arm64-apple-ios17.0 \
@@ -268,7 +268,7 @@ static void app_set_window(id self, SEL _cmd, id win) {
 
 // MARK: - UI Launch
 static int appDidFinishLaunching(id self, SEL _cmd, id application, id launchOptions) {
-    log_boot("appDidFinishLaunching started");
+    log_boot("appDidFinishLaunching: Starting UI initialization");
     
     Class uiWindowClass = f_objc_getClass("UIWindow");
     Class uiScreenClass = f_objc_getClass("UIScreen");
@@ -328,13 +328,15 @@ static int appDidFinishLaunching(id self, SEL _cmd, id application, id launchOpt
     ((void (*)(id, SEL, id))f_objc_msgSend)(subLabel, f_sel_registerName("setFont:"), monoFont);
     ((void (*)(id, SEL, id))f_objc_msgSend)(view, f_sel_registerName("addSubview:"), subLabel);
     
-    // 5-Pillar Segmented Control
-    id item0 = create_str("Radar");
-    id item1 = create_str("Music");
-    id item2 = create_str("Storage");
-    id item3 = create_str("Taxes");
-    id item4 = create_str("Sync");
-    id segItems = ((id (*)(Class, SEL, id, id, id, id, id, void*))f_objc_msgSend)(nsArrayClass, f_sel_registerName("arrayWithObjects:"), item0, item1, item2, item3, item4, NULL);
+    // 5-Pillar Segmented Control (Using Non-Variadic arrayWithObjects:count: to prevent ARM64 register corruption)
+    id segItemsArray[5];
+    segItemsArray[0] = create_str("Radar");
+    segItemsArray[1] = create_str("Music");
+    segItemsArray[2] = create_str("Storage");
+    segItemsArray[3] = create_str("Taxes");
+    segItemsArray[4] = create_str("Sync");
+    
+    id segItems = ((id (*)(Class, SEL, const id *, unsigned long))f_objc_msgSend)(nsArrayClass, f_sel_registerName("arrayWithObjects:count:"), segItemsArray, 5);
     
     id segCtrl = ((id (*)(Class, SEL))f_objc_msgSend)(uiSegmentedClass, f_sel_registerName("alloc"));
     segCtrl = ((id (*)(id, SEL, id))f_objc_msgSend)(segCtrl, f_sel_registerName("initWithItems:"), segItems);
@@ -733,7 +735,7 @@ static int appDidFinishLaunching(id self, SEL _cmd, id application, id launchOpt
     ((void (*)(id, SEL, id))f_objc_msgSend)(window, f_sel_registerName("setRootViewController:"), vc);
     ((void (*)(id, SEL))f_objc_msgSend)(window, f_sel_registerName("makeKeyAndVisible"));
     
-    log_boot("UIWindow made key and visible successfully");
+    log_boot("appDidFinishLaunching: Window is key and visible!");
     return 1;
 }
 
@@ -775,7 +777,7 @@ int main(int argc, char *argv[]) {
         uikit = dlopen("/System/iOSSupport/System/Library/Frameworks/UIKit.framework/UIKit", RTLD_NOW | RTLD_GLOBAL);
     }
     
-    log_boot("Initializing LumenAppDelegate...");
+    log_boot("Registering LumenAppDelegate...");
     Class nsObjectClass = f_objc_getClass("NSObject");
     Class appDelegateClass = f_allocateClass(nsObjectClass, "LumenAppDelegate", 0);
     
@@ -798,7 +800,7 @@ int main(int argc, char *argv[]) {
     f_addMethod(appDelegateClass, f_sel_registerName("segmentChangedAction:"), (void*)on_segment_changed, "v@:@");
     
     f_registerClass(appDelegateClass);
-    log_boot("LumenAppDelegate registered");
+    log_boot("LumenAppDelegate registered successfully");
     
     UIApplicationMain_func f_uikitMain = (UIApplicationMain_func)dlsym(RTLD_DEFAULT, "UIApplicationMain");
     if (!f_uikitMain && uikit) {
@@ -806,7 +808,7 @@ int main(int argc, char *argv[]) {
     }
     
     if (f_uikitMain) {
-        log_boot("Calling UIApplicationMain...");
+        log_boot("Invoking UIApplicationMain");
         id delName = create_str("LumenAppDelegate");
         return f_uikitMain(argc, argv, NULL, delName);
     }
