@@ -8,7 +8,7 @@ BUILD_DIR="$MOBILE_DIR/build"
 DIST_DIR="$MOBILE_DIR/distribution"
 
 echo "=================================================="
-echo "⚡ LUMEN MOBILE: NATIVE iOS .IPA COMPILATION (v2.2.0)"
+echo "⚡ LUMEN MOBILE: NATIVE iOS .IPA COMPILATION (v2.3.0)"
 echo "=================================================="
 
 # 1. Clean build directories
@@ -1081,7 +1081,7 @@ static int appDidFinishLaunching(id self, SEL _cmd, id application, id launchOpt
     id subLabel = ((id (*)(Class, SEL))f_objc_msgSend)(uiLabelClass, f_sel_registerName("alloc"));
     CGRect subRect = {20, 88, bounds.width - 40, 16};
     subLabel = ((id (*)(id, SEL, CGRect))f_objc_msgSend)(subLabel, f_sel_registerName("initWithFrame:"), subRect);
-    ((void (*)(id, SEL, id))f_objc_msgSend)(subLabel, f_sel_registerName("setText:"), create_str("● SENSORS STREAMING · LOCAL BUFFER ARMED (v2.2.0)"));
+    ((void (*)(id, SEL, id))f_objc_msgSend)(subLabel, f_sel_registerName("setText:"), create_str("● SENSORS STREAMING · LOCAL BUFFER ARMED (v2.3.0)"));
     id greenColor = ((id (*)(Class, SEL, double, double, double, double))f_objc_msgSend)(uiColorClass, f_sel_registerName("colorWithRed:green:blue:alpha:"), 0.2, 0.8, 0.6, 1.0);
     ((void (*)(id, SEL, id))f_objc_msgSend)(subLabel, f_sel_registerName("setTextColor:"), greenColor);
     id monoFont = ((id (*)(Class, SEL, double))f_objc_msgSend)(uiFontClass, f_sel_registerName("boldSystemFontOfSize:"), 10.0);
