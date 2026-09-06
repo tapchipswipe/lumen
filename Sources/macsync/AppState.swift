@@ -269,6 +269,10 @@ final class AppState: ObservableObject {
 
         // AI Fleet Telemetry & Multi-Account Quota Radar
         aiFleetSummary = AIFleetTelemetryCollector.scanFleet()
+
+        // Neural Vector Semantic Memory & Focus Shield Pacing
+        LocalVectorStore.shared.indexLifelogEvents(events)
+        FocusShieldEngine.shared.evaluateFocusState(liveWPM: Double(liveKeystrokes) / 5.0, uncommittedDiffLines: 0)
     }
 
     func refreshAIFleet() {
@@ -485,6 +489,12 @@ final class AppState: ObservableObject {
         if savePanel.runModal() == .OK, let url = savePanel.url {
             try? md.write(to: url, atomically: true, encoding: .utf8)
         }
+    }
+
+    func exportCPATaxPack() {
+        let allReceipts = SpendStats.allReceipts()
+        let result = CPATaxPackGenerator.generateTaxPack(year: 2026, receipts: allReceipts)
+        NSWorkspace.shared.activateFileViewerSelecting([result.folderURL])
     }
 
     // MARK: - Night pause (#17)

@@ -100,6 +100,8 @@
 		<string>com.lumen.mobile.refresh</string>
 		<string>com.lumen.mobile.processing</string>
 	</array>
+	<key>NSSupportsLiveActivities</key>
+	<true/>
 	<key>UILaunchScreen</key>
 	<dict/>
 	<key>UISupportedInterfaceOrientations</key>

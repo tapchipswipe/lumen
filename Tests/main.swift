@@ -27,6 +27,7 @@ MorningBriefingTests.run()
 DeepTelemetryTests.run()
 FrontierCore4Tests.run()
 AIFleetAndCopilotTests.run()
+runNextGenIntegrationTests()
 
 print("\(checks - failures)/\(checks) checks passed")
 exit(failures == 0 ? 0 : 1)
