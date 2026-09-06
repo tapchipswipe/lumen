@@ -19,7 +19,7 @@ mkdir -p "$DIST_DIR"
 APP_BUNDLE="$BUILD_DIR/Payload/LumenMobile.app"
 mkdir -p "$APP_BUNDLE"
 
-echo "📱 Step 1: Compiling Rock-Solid Unified Diagnostic Binary (ARM64)..."
+echo "📱 Step 1: Compiling Hardened Diagnostic Engine with Full Logging..."
 SDK_PATH="$(xcrun --show-sdk-path)"
 
 clang -target arm64-apple-ios17.0 \
@@ -50,23 +50,21 @@ typedef Class (*objc_allocateClassPair_func)(Class superclass, const char *name,
 typedef void (*objc_registerClassPair_func)(Class cls);
 typedef int (*class_addMethod_func)(Class cls, SEL name, void *imp, const char *types);
 typedef int (*UIApplicationMain_func)(int argc, char *argv[], void *principalClassName, void *delegateClassName);
+typedef void (*NSSetUncaughtExceptionHandler_func)(void (*handler)(id));
+typedef const void* (*CFRetain_func)(const void *cf);
 
 static objc_getClass_func f_objc_getClass;
 static sel_registerName_func f_sel_registerName;
 static objc_msgSend_func f_objc_msgSend;
+static CFRetain_func f_CFRetain;
 
+static id g_window = NULL;
 static id root_vc = NULL;
 static id g_container_radar = NULL;
 static id g_container_music = NULL;
 static id g_container_storage = NULL;
 static id g_container_taxes = NULL;
 static id g_container_sync = NULL;
-
-static id create_str(const char *utf8) {
-    Class strClass = f_objc_getClass("NSString");
-    SEL sel = f_sel_registerName("stringWithUTF8String:");
-    return ((id (*)(Class, SEL, const char *))f_objc_msgSend)(strClass, sel, utf8);
-}
 
 static const char* get_documents_path() {
     static char path[1024];
@@ -79,28 +77,62 @@ static const char* get_documents_path() {
     return path;
 }
 
-// MARK: - Crash Handling
-static void write_crash_log(const char *reason) {
+static void log_boot(const char *msg) {
+    char path[1024];
+    snprintf(path, sizeof(path), "%s/lumen_boot_log.txt", get_documents_path());
+    FILE *f = fopen(path, "a");
+    if (f) {
+        time_t now = time(NULL);
+        char tbuf[64];
+        strftime(tbuf, sizeof(tbuf), "%Y-%m-%d %H:%M:%S", localtime(&now));
+        fprintf(f, "[%s] %s\n", tbuf, msg);
+        fflush(f);
+        fclose(f);
+    }
+    printf("[LumenBoot] %s\n", msg);
+}
+
+static id create_str(const char *utf8) {
+    Class strClass = f_objc_getClass("NSString");
+    SEL sel = f_sel_registerName("stringWithUTF8String:");
+    return ((id (*)(Class, SEL, const char *))f_objc_msgSend)(strClass, sel, utf8);
+}
+
+// MARK: - Crash & Exception Handlers
+static void write_crash_log(const char *header, const char *reason) {
     char crash_path[1024];
     snprintf(crash_path, sizeof(crash_path), "%s/crash_log.txt", get_documents_path());
     FILE *f = fopen(crash_path, "w");
     if (f) {
         time_t now = time(NULL);
         fprintf(f, "========================================\n");
-        fprintf(f, "💥 LUMEN MOBILE CRASH REPORT\n");
+        fprintf(f, "💥 %s\n", header);
         fprintf(f, "Timestamp: %s", ctime(&now));
-        fprintf(f, "Reason: %s\n", reason);
+        fprintf(f, "Details: %s\n", reason);
         fprintf(f, "Architecture: arm64 (iOS 17+)\n");
         fprintf(f, "========================================\n");
         fclose(f);
     }
+    log_boot("CRASH RECORDED TO Documents/crash_log.txt");
 }
 
 static void posix_signal_handler(int sig) {
-    char buf[64];
+    char buf[128];
     snprintf(buf, sizeof(buf), "POSIX Signal Caught: %d", sig);
-    write_crash_log(buf);
+    write_crash_log("LUMEN CRASH: POSIX SIGNAL", buf);
     exit(sig);
+}
+
+static void uncaught_exception_handler(id exception) {
+    id name = ((id (*)(id, SEL))f_objc_msgSend)(exception, f_sel_registerName("name"));
+    id reason = ((id (*)(id, SEL))f_objc_msgSend)(exception, f_sel_registerName("reason"));
+    
+    const char *n_str = name ? ((const char* (*)(id, SEL))f_objc_msgSend)(name, f_sel_registerName("UTF8String")) : "Unknown";
+    const char *r_str = reason ? ((const char* (*)(id, SEL))f_objc_msgSend)(reason, f_sel_registerName("UTF8String")) : "Unknown";
+    
+    char buf[512];
+    snprintf(buf, sizeof(buf), "Exception Name: %s | Reason: %s", n_str, r_str);
+    write_crash_log("LUMEN CRASH: UNCAUGHT OBJC EXCEPTION", buf);
 }
 
 // MARK: - Helper UI Functions
@@ -122,7 +154,7 @@ static void show_alert(const char *title, const char *message) {
 // MARK: - Interactive Button Actions
 
 static void on_flush_clicked(id self, SEL _cmd) {
-    printf("[LumenMobile] Flushing in-memory buffer to disk...\n");
+    log_boot("User triggered: Flush Buffer");
     char export_path[1024];
     snprintf(export_path, sizeof(export_path), "%s/macsync_exports", get_documents_path());
     mkdir(export_path, 0755);
@@ -143,7 +175,7 @@ static void on_flush_clicked(id self, SEL _cmd) {
 }
 
 static void on_share_clicked(id self, SEL _cmd) {
-    printf("[LumenMobile] Opening AirDrop & Share Sheet...\n");
+    log_boot("User triggered: AirDrop Share Sheet");
     time_t now = time(NULL);
     struct tm *tm = localtime(&now);
     char today[32];
@@ -170,67 +202,53 @@ static void on_share_clicked(id self, SEL _cmd) {
     }
 }
 
-static void on_export_files_clicked(id self, SEL _cmd) {
-    printf("[LumenMobile] Opening Document Picker for iCloud Export...\n");
-    time_t now = time(NULL);
-    struct tm *tm = localtime(&now);
-    char today[32];
-    strftime(today, sizeof(today), "%Y-%m-%d", tm);
-    
-    char export_path[1024];
-    snprintf(export_path, sizeof(export_path), "%s/macsync_exports", get_documents_path());
-    mkdir(export_path, 0755);
-    
-    char event_file[1024];
-    snprintf(event_file, sizeof(event_file), "%s/events-%s-iphone.jsonl", export_path, today);
-    FILE *f = fopen(event_file, "a");
-    if (f) fclose(f);
+static void on_export_logs_clicked(id self, SEL _cmd) {
+    log_boot("User triggered: Export Diagnostic Logs");
+    char log_path[1024];
+    snprintf(log_path, sizeof(log_path), "%s/lumen_boot_log.txt", get_documents_path());
     
     Class urlClass = f_objc_getClass("NSURL");
-    id fileURL = ((id (*)(Class, SEL, id))f_objc_msgSend)(urlClass, f_sel_registerName("fileURLWithPath:"), create_str(event_file));
+    id fileURL = ((id (*)(Class, SEL, id))f_objc_msgSend)(urlClass, f_sel_registerName("fileURLWithPath:"), create_str(log_path));
     Class arrayClass = f_objc_getClass("NSArray");
     id items = ((id (*)(Class, SEL, id))f_objc_msgSend)(arrayClass, f_sel_registerName("arrayWithObject:"), fileURL);
-    Class docPickerClass = f_objc_getClass("UIDocumentPickerViewController");
-    id picker = ((id (*)(Class, SEL))f_objc_msgSend)(docPickerClass, f_sel_registerName("alloc"));
-    picker = ((id (*)(id, SEL, id, int))f_objc_msgSend)(picker, f_sel_registerName("initForExportingURLs:asCopy:"), items, 1);
-    if (root_vc && picker) {
-        ((void (*)(id, SEL, id, int, void*))f_objc_msgSend)(root_vc, f_sel_registerName("presentViewController:animated:completion:"), picker, 1, NULL);
+    Class activityClass = f_objc_getClass("UIActivityViewController");
+    id activityVC = ((id (*)(Class, SEL))f_objc_msgSend)(activityClass, f_sel_registerName("alloc"));
+    activityVC = ((id (*)(id, SEL, id, id))f_objc_msgSend)(activityVC, f_sel_registerName("initWithActivityItems:applicationActivities:"), items, NULL);
+    if (root_vc && activityVC) {
+        ((void (*)(id, SEL, id, int, void*))f_objc_msgSend)(root_vc, f_sel_registerName("presentViewController:animated:completion:"), activityVC, 1, NULL);
     }
 }
 
-// Music Intelligence Handlers (Phase 1)
 static void on_create_playlist_clicked(id self, SEL _cmd) {
-    printf("[LumenMobile] Generating Deep Work Focus Playlist via MediaPlayer...\n");
+    log_boot("User triggered: Create Focus Playlist");
     show_alert("Focus Playlist Generated", "⚡ Created 'Lumen Deep Work Flow' (128-140 BPM) with 25 curated ambient tracks synced to Apple Music!");
 }
 
-// Storage & Photos Handlers (Phase 2)
 static void on_evict_bloat_clicked(id self, SEL _cmd) {
-    printf("[LumenMobile] Evicting Photos & Video Bloat via PHAssetChangeRequest...\n");
+    log_boot("User triggered: Evict Bloat");
     show_alert("Storage Optimized", "🧹 18 4K video clips & 142 burst frames (14.2 GB) scheduled for eviction. Device storage runway extended.");
 }
 
-// Taxes Handlers
 static void on_scan_receipt_clicked(id self, SEL _cmd) {
-    printf("[LumenMobile] Launching Vision OCR Scanner...\n");
+    log_boot("User triggered: Scan Receipt");
     show_alert("Vision OCR Active", "📷 Point camera at expense receipt. Automatic Line 18 (SaaS) and Line 22 (Hardware) categorization ready.");
 }
 
 static void on_export_taxpack_clicked(id self, SEL _cmd) {
-    printf("[LumenMobile] Generating CPA Tax Pack...\n");
+    log_boot("User triggered: Export Tax Pack");
     show_alert("CPA Tax Pack Ready", "📑 IRS Schedule-C expense reconciliation pack generated ($5,180.50 deductions · $1,450.54 tax savings). Ready for CPA export.");
 }
 
-// Time Machine & P2P Handlers
 static void on_p2p_pair_clicked(id self, SEL _cmd) {
-    printf("[LumenMobile] Broadcasting P2P Bonjour Beacon (_lumen._tcp)...\n");
+    log_boot("User triggered: P2P Beacon");
     show_alert("P2P Radar Active", "📡 Broadcasting Bonjour beacon on local LAN. Ready to pair with Lumen Mac for zero-cloud peer-to-peer sync.");
 }
 
-// Segment Switch Handler
 static void on_segment_changed(id self, SEL _cmd, id sender) {
     long idx = ((long (*)(id, SEL))f_objc_msgSend)(sender, f_sel_registerName("selectedSegmentIndex"));
-    printf("[LumenMobile] Switching diagnostic pillar to index %ld\n", idx);
+    char buf[64];
+    snprintf(buf, sizeof(buf), "Switched tab to index: %ld", idx);
+    log_boot(buf);
     
     if (g_container_radar)   ((void (*)(id, SEL, bool))f_objc_msgSend)(g_container_radar, f_sel_registerName("setHidden:"), idx != 0);
     if (g_container_music)   ((void (*)(id, SEL, bool))f_objc_msgSend)(g_container_music, f_sel_registerName("setHidden:"), idx != 1);
@@ -239,9 +257,18 @@ static void on_segment_changed(id self, SEL _cmd, id sender) {
     if (g_container_sync)    ((void (*)(id, SEL, bool))f_objc_msgSend)(g_container_sync, f_sel_registerName("setHidden:"), idx != 4);
 }
 
+// MARK: - App Delegate Properties
+static id app_get_window(id self, SEL _cmd) {
+    return g_window;
+}
+
+static void app_set_window(id self, SEL _cmd, id win) {
+    g_window = win;
+}
+
 // MARK: - UI Launch
 static int appDidFinishLaunching(id self, SEL _cmd, id application, id launchOptions) {
-    printf("[LumenMobile v2.0.0] Initializing Unified Native Diagnostic HUD...\n");
+    log_boot("appDidFinishLaunching started");
     
     Class uiWindowClass = f_objc_getClass("UIWindow");
     Class uiScreenClass = f_objc_getClass("UIScreen");
@@ -251,27 +278,33 @@ static int appDidFinishLaunching(id self, SEL _cmd, id application, id launchOpt
     Class uiFontClass = f_objc_getClass("UIFont");
     Class uiViewClass = f_objc_getClass("UIView");
     Class uiButtonClass = f_objc_getClass("UIButton");
-    Class uiScrollViewClass = f_objc_getClass("UIScrollView");
     Class uiSegmentedClass = f_objc_getClass("UISegmentedControl");
     Class nsArrayClass = f_objc_getClass("NSArray");
     
-    if (!uiWindowClass || !uiScreenClass || !uiViewControllerClass) return 1;
+    if (!uiWindowClass || !uiScreenClass || !uiViewControllerClass) {
+        log_boot("FATAL: Core UIKit classes missing");
+        return 1;
+    }
     
     id mainScreen = ((id (*)(Class, SEL))f_objc_msgSend)(uiScreenClass, f_sel_registerName("mainScreen"));
     CGRect bounds = ((CGRect (*)(id, SEL))f_objc_msgSend)(mainScreen, f_sel_registerName("bounds"));
     
     id window = ((id (*)(Class, SEL))f_objc_msgSend)(uiWindowClass, f_sel_registerName("alloc"));
     window = ((id (*)(id, SEL, CGRect))f_objc_msgSend)(window, f_sel_registerName("initWithFrame:"), bounds);
+    g_window = window;
+    if (f_CFRetain) f_CFRetain(window);
     
     id vc = ((id (*)(Class, SEL))f_objc_msgSend)(uiViewControllerClass, f_sel_registerName("alloc"));
     vc = ((id (*)(id, SEL))f_objc_msgSend)(vc, f_sel_registerName("init"));
     root_vc = vc;
+    if (f_CFRetain) f_CFRetain(vc);
     
     id view = ((id (*)(id, SEL))f_objc_msgSend)(vc, f_sel_registerName("view"));
     
     // Background Dark Minimalist Theme
     id bgColor = ((id (*)(Class, SEL, double, double, double, double))f_objc_msgSend)(uiColorClass, f_sel_registerName("colorWithRed:green:blue:alpha:"), 0.04, 0.04, 0.06, 1.0);
     ((void (*)(id, SEL, id))f_objc_msgSend)(view, f_sel_registerName("setBackgroundColor:"), bgColor);
+    ((void (*)(id, SEL, id))f_objc_msgSend)(window, f_sel_registerName("setBackgroundColor:"), bgColor);
     
     // Header Title
     id titleLabel = ((id (*)(Class, SEL))f_objc_msgSend)(uiLabelClass, f_sel_registerName("alloc"));
@@ -415,15 +448,15 @@ static int appDidFinishLaunching(id self, SEL _cmd, id application, id launchOpt
     ((void (*)(id, SEL, id, SEL, unsigned long))f_objc_msgSend)(bShare, f_sel_registerName("addTarget:action:forControlEvents:"), self, f_sel_registerName("shareAction:"), 1 << 6);
     ((void (*)(id, SEL, id))f_objc_msgSend)(g_container_radar, f_sel_registerName("addSubview:"), bShare);
     
-    id bExp = ((id (*)(Class, SEL, long))f_objc_msgSend)(uiButtonClass, f_sel_registerName("buttonWithType:"), 1);
-    CGRect bER = {16 + colWidth + 16, 298, colWidth, 42};
-    ((void (*)(id, SEL, CGRect))f_objc_msgSend)(bExp, f_sel_registerName("setFrame:"), bER);
-    ((void (*)(id, SEL, id, long))f_objc_msgSend)(bExp, f_sel_registerName("setTitle:forState:"), create_str("☁️ iCloud / Files"), 0);
-    ((void (*)(id, SEL, id, long))f_objc_msgSend)(bExp, f_sel_registerName("setTitleColor:forState:"), whiteColor, 0);
-    ((void (*)(id, SEL, id))f_objc_msgSend)(bExp, f_sel_registerName("setBackgroundColor:"), btnBg1);
-    ((void (*)(id, SEL, double))f_objc_msgSend)(((id (*)(id, SEL))f_objc_msgSend)(bExp, f_sel_registerName("layer")), f_sel_registerName("setCornerRadius:"), 12.0);
-    ((void (*)(id, SEL, id, SEL, unsigned long))f_objc_msgSend)(bExp, f_sel_registerName("addTarget:action:forControlEvents:"), self, f_sel_registerName("exportFilesAction:"), 1 << 6);
-    ((void (*)(id, SEL, id))f_objc_msgSend)(g_container_radar, f_sel_registerName("addSubview:"), bExp);
+    id bLogs = ((id (*)(Class, SEL, long))f_objc_msgSend)(uiButtonClass, f_sel_registerName("buttonWithType:"), 1);
+    CGRect bLR = {16 + colWidth + 16, 298, colWidth, 42};
+    ((void (*)(id, SEL, CGRect))f_objc_msgSend)(bLogs, f_sel_registerName("setFrame:"), bLR);
+    ((void (*)(id, SEL, id, long))f_objc_msgSend)(bLogs, f_sel_registerName("setTitle:forState:"), create_str("📋 Export Logs"), 0);
+    ((void (*)(id, SEL, id, long))f_objc_msgSend)(bLogs, f_sel_registerName("setTitleColor:forState:"), whiteColor, 0);
+    ((void (*)(id, SEL, id))f_objc_msgSend)(bLogs, f_sel_registerName("setBackgroundColor:"), btnBg1);
+    ((void (*)(id, SEL, double))f_objc_msgSend)(((id (*)(id, SEL))f_objc_msgSend)(bLogs, f_sel_registerName("layer")), f_sel_registerName("setCornerRadius:"), 12.0);
+    ((void (*)(id, SEL, id, SEL, unsigned long))f_objc_msgSend)(bLogs, f_sel_registerName("addTarget:action:forControlEvents:"), self, f_sel_registerName("exportLogsAction:"), 1 << 6);
+    ((void (*)(id, SEL, id))f_objc_msgSend)(g_container_radar, f_sel_registerName("addSubview:"), bLogs);
     
     ((void (*)(id, SEL, id))f_objc_msgSend)(view, f_sel_registerName("addSubview:"), g_container_radar);
     
@@ -696,52 +729,22 @@ static int appDidFinishLaunching(id self, SEL _cmd, id application, id launchOpt
     
     ((void (*)(id, SEL, id))f_objc_msgSend)(view, f_sel_registerName("addSubview:"), g_container_sync);
     
-    // Check for prior crash log
-    char crash_path[1024];
-    snprintf(crash_path, sizeof(crash_path), "%s/crash_log.txt", get_documents_path());
-    if (access(crash_path, F_OK) == 0) {
-        FILE *cf = fopen(crash_path, "r");
-        if (cf) {
-            char log_buf[512];
-            size_t n = fread(log_buf, 1, sizeof(log_buf) - 1, cf);
-            log_buf[n] = '\0';
-            fclose(cf);
-            unlink(crash_path);
-            
-            Class alertClass = f_objc_getClass("UIAlertController");
-            Class alertActionClass = f_objc_getClass("UIAlertAction");
-            if (alertClass && alertActionClass) {
-                id alert = ((id (*)(Class, SEL, id, id, long))f_objc_msgSend)(alertClass, f_sel_registerName("alertControllerWithTitle:message:preferredStyle:"), 
-                    create_str("Previous Session Diagnostic"), 
-                    create_str(log_buf), 
-                    1);
-                id dismissAction = ((id (*)(Class, SEL, id, long, void*))f_objc_msgSend)(alertActionClass, f_sel_registerName("actionWithTitle:style:handler:"), 
-                    create_str("Dismiss & Clear"), 0, NULL);
-                ((void (*)(id, SEL, id))f_objc_msgSend)(alert, f_sel_registerName("addAction:"), dismissAction);
-                ((void (*)(id, SEL, id, int, void*))f_objc_msgSend)(vc, f_sel_registerName("presentViewController:animated:completion:"), alert, 1, NULL);
-            }
-        }
-    }
-    
     // Present Window
     ((void (*)(id, SEL, id))f_objc_msgSend)(window, f_sel_registerName("setRootViewController:"), vc);
     ((void (*)(id, SEL))f_objc_msgSend)(window, f_sel_registerName("makeKeyAndVisible"));
     
-    SEL retainSel = f_sel_registerName("retain");
-    if (retainSel) {
-        ((id (*)(id, SEL))f_objc_msgSend)(window, retainSel);
-    }
+    log_boot("UIWindow made key and visible successfully");
     return 1;
 }
 
 int main(int argc, char *argv[]) {
-    printf("[LumenMobile v2.0.0] Bootstrapping Runtime...\n");
-    
     // Install Crash Handlers
     signal(SIGABRT, posix_signal_handler);
     signal(SIGSEGV, posix_signal_handler);
     signal(SIGBUS,  posix_signal_handler);
     signal(SIGILL,  posix_signal_handler);
+    signal(SIGFPE,  posix_signal_handler);
+    signal(SIGTRAP, posix_signal_handler);
     
     void *libobjc = dlopen("/usr/lib/libobjc.A.dylib", RTLD_NOW | RTLD_GLOBAL);
     if (!libobjc) libobjc = RTLD_DEFAULT;
@@ -749,6 +752,19 @@ int main(int argc, char *argv[]) {
     f_objc_getClass = (objc_getClass_func)dlsym(libobjc, "objc_getClass");
     f_sel_registerName = (sel_registerName_func)dlsym(libobjc, "sel_registerName");
     f_objc_msgSend = (objc_msgSend_func)dlsym(libobjc, "objc_msgSend");
+    
+    void *corefound = dlopen("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation", RTLD_NOW | RTLD_GLOBAL);
+    if (corefound) {
+        f_CFRetain = (CFRetain_func)dlsym(corefound, "CFRetain");
+    }
+    
+    void *found = dlopen("/System/Library/Frameworks/Foundation.framework/Foundation", RTLD_NOW | RTLD_GLOBAL);
+    if (found) {
+        NSSetUncaughtExceptionHandler_func f_setEx = (NSSetUncaughtExceptionHandler_func)dlsym(found, "NSSetUncaughtExceptionHandler");
+        if (f_setEx) {
+            f_setEx(uncaught_exception_handler);
+        }
+    }
     
     objc_allocateClassPair_func f_allocateClass = (objc_allocateClassPair_func)dlsym(libobjc, "objc_allocateClassPair");
     objc_registerClassPair_func f_registerClass = (objc_registerClassPair_func)dlsym(libobjc, "objc_registerClassPair");
@@ -759,12 +775,21 @@ int main(int argc, char *argv[]) {
         uikit = dlopen("/System/iOSSupport/System/Library/Frameworks/UIKit.framework/UIKit", RTLD_NOW | RTLD_GLOBAL);
     }
     
+    log_boot("Initializing LumenAppDelegate...");
     Class nsObjectClass = f_objc_getClass("NSObject");
     Class appDelegateClass = f_allocateClass(nsObjectClass, "LumenAppDelegate", 0);
+    
+    // Window Property
+    f_addMethod(appDelegateClass, f_sel_registerName("window"), (void*)app_get_window, "@@:");
+    f_addMethod(appDelegateClass, f_sel_registerName("setWindow:"), (void*)app_set_window, "v@:@");
+    
+    // Lifecycle
     f_addMethod(appDelegateClass, f_sel_registerName("application:didFinishLaunchingWithOptions:"), (void*)appDidFinishLaunching, "c@:@@");
+    
+    // Actions
     f_addMethod(appDelegateClass, f_sel_registerName("flushBufferAction:"), (void*)on_flush_clicked, "v@:@");
     f_addMethod(appDelegateClass, f_sel_registerName("shareAction:"), (void*)on_share_clicked, "v@:@");
-    f_addMethod(appDelegateClass, f_sel_registerName("exportFilesAction:"), (void*)on_export_files_clicked, "v@:@");
+    f_addMethod(appDelegateClass, f_sel_registerName("exportLogsAction:"), (void*)on_export_logs_clicked, "v@:@");
     f_addMethod(appDelegateClass, f_sel_registerName("createPlaylistAction:"), (void*)on_create_playlist_clicked, "v@:@");
     f_addMethod(appDelegateClass, f_sel_registerName("evictBloatAction:"), (void*)on_evict_bloat_clicked, "v@:@");
     f_addMethod(appDelegateClass, f_sel_registerName("scanReceiptAction:"), (void*)on_scan_receipt_clicked, "v@:@");
@@ -773,6 +798,7 @@ int main(int argc, char *argv[]) {
     f_addMethod(appDelegateClass, f_sel_registerName("segmentChangedAction:"), (void*)on_segment_changed, "v@:@");
     
     f_registerClass(appDelegateClass);
+    log_boot("LumenAppDelegate registered");
     
     UIApplicationMain_func f_uikitMain = (UIApplicationMain_func)dlsym(RTLD_DEFAULT, "UIApplicationMain");
     if (!f_uikitMain && uikit) {
@@ -780,10 +806,12 @@ int main(int argc, char *argv[]) {
     }
     
     if (f_uikitMain) {
+        log_boot("Calling UIApplicationMain...");
         id delName = create_str("LumenAppDelegate");
         return f_uikitMain(argc, argv, NULL, delName);
     }
     
+    log_boot("ERROR: UIApplicationMain could not be resolved");
     return 0;
 }
 SRC
