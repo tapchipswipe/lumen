@@ -16,7 +16,7 @@ public final class MobileAppState: ObservableObject {
     @Published public var audioOutput: String = "AirPods Pro"
     @Published public var batteryPercent: Int = 100
     @Published public var isCharging: Bool = false
-    @Published public var lastSyncStatus: String = "Local Buffer Active"
+    @Published public var lastSyncStatus: String = "P2P Bonjour Ready"
 
     // Crash Log Inspection
     @Published public var pendingCrashLog: String? = nil
@@ -39,6 +39,12 @@ public final class MobileAppState: ObservableObject {
             self.isCharging = UIDevice.current.batteryState == .charging || UIDevice.current.batteryState == .full
         }
 
+        P2PSyncClient.shared.onSyncStatusChanged = { [weak self] status in
+            DispatchQueue.main.async {
+                self?.lastSyncStatus = status
+            }
+        }
+
         // Check for prior crash logs
         if CrashReporter.shared.hasPendingCrashLog(), let log = CrashReporter.shared.readCrashLog() {
             self.pendingCrashLog = log
@@ -55,6 +61,7 @@ public final class MobileAppState: ObservableObject {
         MobileHardwareCollector.shared.start()
         CellularNetworkCollector.shared.start()
         MobileAudioRouteCollector.shared.start()
+        P2PSyncClient.shared.startDiscovery()
         
         HealthKitCollector.shared.requestAuthorization { [weak self] success in
             if success {
@@ -79,7 +86,12 @@ public final class MobileAppState: ObservableObject {
         MobileHardwareCollector.shared.stop()
         CellularNetworkCollector.shared.stop()
         MobileAudioRouteCollector.shared.stop()
+        P2PSyncClient.shared.stopDiscovery()
         MobileDataStore.shared.flush()
+    }
+
+    public func triggerP2PSyncWithMac() {
+        P2PSyncClient.shared.triggerManualP2PSync()
     }
 
     public func flushBufferNow() {
@@ -104,6 +116,7 @@ public final class MobileAppState: ObservableObject {
         MobileHardwareCollector.shared.resumeForegroundSampling()
         MobileAudioRouteCollector.shared.sampleRoute()
         HealthKitCollector.shared.sampleHealthMetrics()
+        P2PSyncClient.shared.startDiscovery()
 
         MobileDataStore.shared.append(MobileTrackerEvent(
             kind: .appLifecycle,

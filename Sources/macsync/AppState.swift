@@ -134,11 +134,13 @@ final class AppState: ObservableObject {
         updater.start()
         startLocationPingTimer()
         startHealthFileWatcher()
+        P2PSyncHost.shared.start()
     }
 
     func applicationWillTerminate() {
         stopTracking()
         scheduler.stop()
+        P2PSyncHost.shared.stop()
     }
 
     // MARK: - Tracking control
