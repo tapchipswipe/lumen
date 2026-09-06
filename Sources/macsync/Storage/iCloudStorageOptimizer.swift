@@ -119,12 +119,11 @@ public enum iCloudStorageOptimizer {
 
         var candidates: [StorageOptimizationCandidate] = []
         var reclaimableBytes: Int64 = 0
-        var duplicateBytes: Int64 = 0
         var cacheBytes: Int64 = 0
         var cloudLocalBytes: Int64 = 0
         var cloudEvictedBytes: Int64 = 0
 
-        // 1. Scan iCloud Drive for large downloaded items that can be evicted
+        // 1. Scan iCloud Drive for downloaded items that can be evicted locally
         let cloudDocsPath = home.appendingPathComponent("Library/Mobile Documents/com~apple~CloudDocs")
         if FileManager.default.fileExists(atPath: cloudDocsPath.path) {
             let evictable = scanDirectoryForEvictableItems(cloudDocsPath)
@@ -135,59 +134,35 @@ public enum iCloudStorageOptimizer {
             }
         }
 
-        // 2. Check for duplicate large files (e.g. Movies duplicates)
-        let docMovies = home.appendingPathComponent("Documents/Movies")
-        let localMovies = home.appendingPathComponent("Movies")
-        if FileManager.default.fileExists(atPath: docMovies.path) && FileManager.default.fileExists(atPath: localMovies.path) {
-            let docSize = getDirectorySize(docMovies)
-            if docSize > 100_000_000 {
-                let candidate = StorageOptimizationCandidate(
-                    title: "Duplicate iMovie Library in Documents",
-                    detail: "Exact copy of ~/Movies library synced to iCloud Documents",
-                    path: docMovies.path,
-                    sizeBytes: docSize,
-                    category: .duplicateFile
-                )
-                candidates.append(candidate)
-                duplicateBytes += docSize
-                reclaimableBytes += docSize
+        // 2. Scan safe disposable developer and system build caches
+        let safeCacheTargets = [
+            ("Xcode DerivedData & Build Caches", home.appendingPathComponent("Library/Developer/Xcode/DerivedData")),
+            ("Xcode Module Caches", home.appendingPathComponent("Library/Caches/com.apple.dt.Xcode")),
+            ("npm Cache", home.appendingPathComponent(".npm/_cacache")),
+            ("CocoaPods Cache", home.appendingPathComponent("Library/Caches/CocoaPods")),
+            ("Homebrew Download Caches", home.appendingPathComponent("Library/Caches/Homebrew")),
+            ("Cargo Registry Cache", home.appendingPathComponent(".cargo/registry/cache"))
+        ]
+
+        for (label, cacheURL) in safeCacheTargets {
+            if FileManager.default.fileExists(atPath: cacheURL.path) {
+                let size = getDirectorySize(cacheURL)
+                if size > 10_000_000 { // > 10MB
+                    let candidate = StorageOptimizationCandidate(
+                        title: label,
+                        detail: "Disposable build & package cache at \(cacheURL.lastPathComponent)",
+                        path: cacheURL.path,
+                        sizeBytes: size,
+                        category: .cachePurge
+                    )
+                    candidates.append(candidate)
+                    cacheBytes += size
+                    reclaimableBytes += size
+                }
             }
         }
 
-        // 3. Scan MacBackup directory in iCloud Documents
-        let backupPath = home.appendingPathComponent("Documents/MacBackup_20260827")
-        if FileManager.default.fileExists(atPath: backupPath.path) {
-            let backupSize = getDirectorySize(backupPath)
-            if backupSize > 100_000_000 {
-                let candidate = StorageOptimizationCandidate(
-                    title: "MacBackup_20260827 (iCloud Snapshot)",
-                    detail: "Backup fully synced to iCloud. Can be safely evicted locally to 0 bytes.",
-                    path: backupPath.path,
-                    sizeBytes: backupSize,
-                    category: .iCloudEvictable
-                )
-                candidates.append(candidate)
-                reclaimableBytes += backupSize
-            }
-        }
-
-        // 4. Scan Caches & DerivedData
-        let cachesPath = home.appendingPathComponent("Library/Caches")
-        let cacheSize = getDirectorySize(cachesPath)
-        if cacheSize > 500_000_000 {
-            let candidate = StorageOptimizationCandidate(
-                title: "User Application Caches",
-                detail: "Temporary application cache files in ~/Library/Caches",
-                path: cachesPath.path,
-                sizeBytes: cacheSize,
-                category: .cachePurge
-            )
-            candidates.append(candidate)
-            cacheBytes += cacheSize
-            reclaimableBytes += cacheSize
-        }
-
-        // 5. Scan Downloads folder for stale heavy files
+        // 3. Scan Downloads folder for stale heavy files (> 20MB)
         let downloadsPath = home.appendingPathComponent("Downloads")
         let (dlCandidates, _) = scanDownloadsForCloudArchiving(downloadsPath)
         for item in dlCandidates {
@@ -195,10 +170,10 @@ public enum iCloudStorageOptimizer {
             reclaimableBytes += item.sizeBytes
         }
 
-        // 6. Estimate already-evicted items in iCloud
+        // 4. Estimate cloud eviction ghost files
         let evictedPath = cloudDocsPath.appendingPathComponent("Downloads_Evicted")
         if FileManager.default.fileExists(atPath: evictedPath.path) {
-            cloudEvictedBytes += 15_000_000_000 // Estimated 15 GB stored in cloud without taking disk
+            cloudEvictedBytes += getDirectorySize(evictedPath)
         }
 
         return StorageSnapshot(
@@ -210,7 +185,7 @@ public enum iCloudStorageOptimizer {
             iCloudLocalBytes: cloudLocalBytes,
             iCloudEvictedBytes: cloudEvictedBytes,
             reclaimableBytes: reclaimableBytes,
-            duplicateSavingsBytes: duplicateBytes,
+            duplicateSavingsBytes: 0,
             cachePurgeableBytes: cacheBytes,
             candidates: candidates,
             lastScanned: Date()
@@ -221,7 +196,7 @@ public enum iCloudStorageOptimizer {
         var results: [StorageOptimizationCandidate] = []
         let fm = FileManager.default
 
-        guard let enumerator = fm.enumerator(at: url, includingPropertiesForKeys: [.fileSizeKey, .isUbiquitousItemKey, .ubiquitousItemDownloadingStatusKey, .isRegularFileKey], options: [.skipsHiddenFiles]) else {
+        guard let enumerator = fm.enumerator(at: url, includingPropertiesForKeys: [.fileSizeKey, .isUbiquitousItemKey, .ubiquitousItemDownloadingStatusKey, .isRegularFileKey], options: [.skipsHiddenFiles, .skipsPackageDescendants]) else {
             return results
         }
 
@@ -230,9 +205,14 @@ public enum iCloudStorageOptimizer {
             scannedCount += 1
             if scannedCount > 500 { break }
 
-            guard let res = try? fileURL.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey]),
+            guard let res = try? fileURL.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey, .ubiquitousItemDownloadingStatusKey]),
                   let isFile = res.isRegularFile, isFile,
                   let size = res.fileSize, Int64(size) > 50_000_000 else {
+                continue
+            }
+
+            // Exclude already evicted (dataless) files
+            if res.ubiquitousItemDownloadingStatus == .notDownloaded {
                 continue
             }
 
@@ -307,36 +287,22 @@ public enum iCloudStorageOptimizer {
         return total
     }
 
-    /// Evicts a file or directory in iCloud Drive using Cocoa API and brctl fallback.
+    /// Evicts a file or directory in iCloud Drive using Cocoa API.
     public static func evictItem(atPath path: String) -> Bool {
         let url = URL(fileURLWithPath: path)
         let fm = FileManager.default
 
-        // If it's a directory, try evicting contained files
-        var isDir: ObjCBool = false
-        if fm.fileExists(atPath: path, isDirectory: &isDir), isDir.boolValue {
-            if let enumerator = fm.enumerator(at: url, includingPropertiesForKeys: nil) {
-                for case let childURL as URL in enumerator {
-                    _ = try? fm.evictUbiquitousItem(at: childURL)
-                }
-            }
+        // If already not downloaded, skip
+        if let res = try? url.resourceValues(forKeys: [.ubiquitousItemDownloadingStatusKey]),
+           res.ubiquitousItemDownloadingStatus == .notDownloaded {
+            return false
         }
 
         do {
             try fm.evictUbiquitousItem(at: url)
             return true
         } catch {
-            // Fallback to brctl evict CLI
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/brctl")
-            process.arguments = ["evict", path]
-            do {
-                try process.run()
-                process.waitUntilExit()
-                return process.terminationStatus == 0
-            } catch {
-                return false
-            }
+            return false
         }
     }
 
@@ -374,20 +340,20 @@ public enum iCloudStorageOptimizer {
         var bytesCleaned: Int64 = 0
 
         let targetPaths = [
-            home.appendingPathComponent("Library/Caches"),
             home.appendingPathComponent("Library/Developer/Xcode/DerivedData"),
-            home.appendingPathComponent(".npm/_cacache")
+            home.appendingPathComponent("Library/Caches/com.apple.dt.Xcode"),
+            home.appendingPathComponent(".npm/_cacache"),
+            home.appendingPathComponent("Library/Caches/CocoaPods"),
+            home.appendingPathComponent("Library/Caches/Homebrew"),
+            home.appendingPathComponent(".cargo/registry/cache")
         ]
 
         for path in targetPaths {
             if fm.fileExists(atPath: path.path) {
                 let size = getDirectorySize(path)
-                if let contents = try? fm.contentsOfDirectory(at: path, includingPropertiesForKeys: nil) {
-                    for item in contents {
-                        try? fm.removeItem(at: item)
-                    }
+                if (try? fm.removeItem(at: path)) != nil {
+                    bytesCleaned += size
                 }
-                bytesCleaned += size
             }
         }
 

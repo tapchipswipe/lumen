@@ -1,34 +1,123 @@
 import SwiftUI
 
+struct ChatMessage: Identifiable {
+    let id = UUID()
+    let isUser: Bool
+    let text: String
+    let timestamp: Date
+    let copilotResponse: CopilotResponse?
+
+    init(isUser: Bool, text: String, copilotResponse: CopilotResponse? = nil) {
+        self.isUser = isUser
+        self.text = text
+        self.timestamp = Date()
+        self.copilotResponse = copilotResponse
+    }
+}
+
 struct SpotlightPaletteView: View {
     @Environment(\.dismiss) private var dismiss
+    @ObservedObject var appState = AppState.shared
     @State private var query: String = ""
-    @State private var selectedTab: SearchResultCategory? = nil
-    @State private var results: [SearchResultCategory: [SearchResultItem]] = [:]
+    @State private var messages: [ChatMessage] = []
+    @State private var searchResults: [SearchResultCategory: [SearchResultItem]] = [:]
+    @State private var isSearchingLifelog: Bool = false
+    @FocusState private var isInputFocused: Bool
 
-    var body: some View {
+    init() {}
+
+    private let suggestedPrompts = [
+        "🤖 How is my AI usage?",
+        "⚡ How many Cursor requests left?",
+        "🔋 What is my battery runway?",
+        "⏳ What did I build today?",
+        "🧹 Run Master Turbo Sweep",
+        "🎵 What music helped me focus?",
+        "💰 What is my monthly spend?"
+    ]
+
+    public var body: some View {
         VStack(spacing: 0) {
-            // Search Input Header
-            HStack(spacing: 12) {
-                Image(systemName: "magnifyingglass")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(AppTheme.accent)
-                TextField("Ask Lumen Copilot or search lifelog (e.g. Steve Credit, CAVA, what did I build?)…", text: $query)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 14))
+            // Header Bar
+            headerBar
+
+            Divider().opacity(0.2)
+
+            // Main Conversation / Search Area
+            if messages.isEmpty && query.isEmpty {
+                emptyWelcomeView
+            } else if !query.isEmpty && isSearchingLifelog {
+                searchResultsListView
+            } else {
+                chatThreadView
+            }
+
+            Divider().opacity(0.2)
+
+            // Input Bar & Action Chips
+            inputBar
+        }
+        .frame(width: 640, height: 520)
+        .background(Color(hex: "#12131A"))
+        .preferredColorScheme(.dark)
+        .onAppear {
+            isInputFocused = true
+            if messages.isEmpty {
+                // Initial welcome message from Lumen
+                messages.append(
+                    ChatMessage(
+                        isUser: false,
+                        text: "Hey! I'm Lumen Copilot. Ask me anything about your AI usage across Cursor and Antigravity, battery runway, Git commits, focus pacing, or system storage.",
+                        copilotResponse: nil
+                    )
+                )
+            }
+        }
+    }
+
+    // MARK: - Header Bar
+
+    private var headerBar: some View {
+        HStack(spacing: 10) {
+            HStack(spacing: 6) {
+                Image(systemName: "bolt.fill")
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(LinearGradient(colors: [Color(hex: "#FBBF24"), Color(hex: "#F59E0B")], startPoint: .top, endPoint: .bottom))
+                Text("Lumen Copilot ⌘K")
+                    .font(.system(size: 13, weight: .bold))
                     .foregroundStyle(.white)
-                    .onChange(of: query) {
+            }
+
+            Spacer()
+
+            HStack(spacing: 8) {
+                Button {
+                    isSearchingLifelog.toggle()
+                    if isSearchingLifelog && !query.isEmpty {
                         performSearch(query)
                     }
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: isSearchingLifelog ? "message.fill" : "magnifyingglass")
+                            .font(.system(size: 10))
+                        Text(isSearchingLifelog ? "Chat Mode" : "Search Lifelog")
+                            .font(.system(size: 10.5, weight: .medium))
+                    }
+                    .padding(.horizontal, 8).padding(.vertical, 3.5)
+                    .background(Capsule().fill(Color.white.opacity(0.08)))
+                    .foregroundStyle(.white.opacity(0.85))
+                }
+                .buttonStyle(.plain)
 
-                if !query.isEmpty {
+                if !messages.isEmpty {
                     Button {
-                        query = ""
-                        results = [:]
+                        messages.removeAll()
                     } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 14))
-                            .foregroundStyle(.white.opacity(0.4))
+                        Text("Clear")
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundStyle(.white.opacity(0.5))
+                            .padding(.horizontal, 6).padding(.vertical, 3)
+                            .background(Capsule().fill(Color.white.opacity(0.06)))
                     }
                     .buttonStyle(.plain)
                 }
@@ -42,71 +131,315 @@ struct SpotlightPaletteView: View {
                 }
                 .buttonStyle(.plain)
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 14)
-            .background(Color(hex: "#1A1B23"))
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .background(Color(hex: "#181922"))
+    }
 
-            Divider().opacity(0.3)
+    // MARK: - Empty Welcome View
 
-            // Results & Copilot View
-            if query.isEmpty {
-                VStack(spacing: 12) {
-                    Image(systemName: "bolt.fill")
-                        .font(.system(size: 28))
-                        .foregroundStyle(LinearGradient(colors: [Color(hex: "#FBBF24"), Color(hex: "#F59E0B")], startPoint: .top, endPoint: .bottom))
-                    Text("Lumen Neural Copilot & Lifelog")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(.white)
-                    Text("Ask questions or search: “Steve Credit”, “CAVA”, “what did I build?”, “tax deductions”.")
-                        .font(.system(size: 11.5))
-                        .foregroundStyle(.white.opacity(0.45))
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .padding(40)
-            } else {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 16) {
-                        // Lumen Copilot Card
-                        copilotCard
+    private var emptyWelcomeView: some View {
+        VStack(spacing: 16) {
+            Spacer()
 
-                        ForEach(SearchResultCategory.allCases) { cat in
-                            if let items = results[cat], !items.isEmpty {
-                                VStack(alignment: .leading, spacing: 8) {
-                                    HStack(spacing: 6) {
-                                        Image(systemName: cat.icon)
-                                            .font(.system(size: 10))
-                                            .foregroundStyle(AppTheme.accent)
-                                        Text(cat.rawValue.uppercased())
-                                            .font(.system(size: 10, weight: .bold))
-                                            .foregroundStyle(.white.opacity(0.45))
-                                            .tracking(1)
-                                        Spacer()
-                                        Text("\(items.count)")
-                                            .font(.system(size: 9.5, weight: .bold, design: .rounded))
-                                            .foregroundStyle(.white.opacity(0.4))
-                                    }
+            ZStack {
+                Circle()
+                    .fill(Color(hex: "#FBBF24").opacity(0.12))
+                    .frame(width: 60, height: 60)
+                Image(systemName: "sparkles")
+                    .font(.system(size: 26, weight: .semibold))
+                    .foregroundStyle(LinearGradient(colors: [Color(hex: "#FBBF24"), Color(hex: "#F59E0B")], startPoint: .top, endPoint: .bottom))
+            }
 
-                                    VStack(spacing: 6) {
-                                        ForEach(items) { item in
-                                            resultRow(item)
-                                        }
-                                    }
-                                }
+            VStack(spacing: 4) {
+                Text("Lumen Neural Copilot")
+                    .font(.system(size: 16, weight: .bold))
+                    .foregroundStyle(.white)
+                Text("Chat about your work, AI accounts, battery runway, and cognitive focus.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.white.opacity(0.5))
+            }
+
+            // Quick Prompt Chips
+            VStack(spacing: 8) {
+                Text("SUGGESTED PROMPTS")
+                    .font(.system(size: 9.5, weight: .bold))
+                    .foregroundStyle(.white.opacity(0.4))
+                    .tracking(1)
+
+                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
+                    ForEach(suggestedPrompts, id: \.self) { prompt in
+                        Button {
+                            submitQuery(prompt.replacingOccurrences(of: "🤖 ", with: "").replacingOccurrences(of: "⚡ ", with: "").replacingOccurrences(of: "🔋 ", with: "").replacingOccurrences(of: "⏳ ", with: "").replacingOccurrences(of: "🧹 ", with: "").replacingOccurrences(of: "🎵 ", with: "").replacingOccurrences(of: "💰 ", with: ""))
+                        } label: {
+                            HStack {
+                                Text(prompt)
+                                    .font(.system(size: 11, weight: .medium))
+                                    .foregroundStyle(.white.opacity(0.85))
+                                    .lineLimit(1)
+                                Spacer()
+                                Image(systemName: "arrow.up.right")
+                                    .font(.system(size: 9))
+                                    .foregroundStyle(Color(hex: "#FBBF24").opacity(0.7))
                             }
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 8)
+                            .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.05)))
+                            .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.white.opacity(0.06), lineWidth: 1))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.horizontal, 24)
+            }
+
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    // MARK: - Chat Thread View
+
+    private var chatThreadView: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 14) {
+                    ForEach(messages) { msg in
+                        if msg.isUser {
+                            userBubble(msg.text)
+                                .id(msg.id)
+                        } else {
+                            copilotBubble(msg)
+                                .id(msg.id)
                         }
                     }
-                    .padding(14)
+                }
+                .padding(16)
+            }
+            .onChange(of: messages.count) { _, _ in
+                if let last = messages.last {
+                    withAnimation {
+                        proxy.scrollTo(last.id, anchor: .bottom)
+                    }
                 }
             }
         }
-        .frame(width: 600, height: 480)
-        .background(Color(hex: "#14151B"))
     }
 
-    private var copilotCard: some View {
-        let appState = AppState.shared
-        let copilot = LumenCopilotEngine.ask(
-            query: query,
+    private func userBubble(_ text: String) -> some View {
+        HStack {
+            Spacer()
+            Text(text)
+                .font(.system(size: 12.5, weight: .medium))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
+                .background(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .fill(Color(hex: "#3B82F6").opacity(0.85))
+                )
+        }
+    }
+
+    private func copilotBubble(_ msg: ChatMessage) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            ZStack {
+                Circle()
+                    .fill(LinearGradient(colors: [Color(hex: "#FBBF24"), Color(hex: "#F59E0B")], startPoint: .top, endPoint: .bottom))
+                    .frame(width: 24, height: 24)
+                Image(systemName: "bolt.fill")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(.black)
+            }
+            .padding(.top, 2)
+
+            VStack(alignment: .leading, spacing: 8) {
+                if let copilot = msg.copilotResponse {
+                    // Card Title Header
+                    HStack(spacing: 6) {
+                        Text(copilot.title.uppercased())
+                            .font(.system(size: 9.5, weight: .bold))
+                            .foregroundStyle(Color(hex: "#FBBF24"))
+                            .tracking(1)
+                        Spacer()
+                    }
+
+                    // Main Answer text
+                    Text(copilot.answer)
+                        .font(.system(size: 12.5, weight: .medium))
+                        .foregroundStyle(.white)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    // Bullet Points
+                    if !copilot.bulletPoints.isEmpty {
+                        VStack(alignment: .leading, spacing: 4) {
+                            ForEach(copilot.bulletPoints, id: \.self) { pt in
+                                HStack(alignment: .top, spacing: 6) {
+                                    Text("•").foregroundStyle(Color(hex: "#FBBF24"))
+                                    Text(pt)
+                                        .font(.system(size: 11))
+                                        .foregroundStyle(.white.opacity(0.85))
+                                }
+                            }
+                        }
+                        .padding(8)
+                        .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.04)))
+                    }
+
+                    // Interactive Action Button
+                    if let pill = copilot.actionPill {
+                        HStack {
+                            Spacer()
+                            Button {
+                                handleActionPill(pill)
+                            } label: {
+                                HStack(spacing: 4) {
+                                    Text(pill).font(.system(size: 10, weight: .bold))
+                                    Image(systemName: "arrow.right.circle.fill").font(.system(size: 10))
+                                }
+                                .padding(.horizontal, 9).padding(.vertical, 4)
+                                .background(Capsule().fill(Color(hex: "#FBBF24").opacity(0.2)))
+                                .foregroundStyle(Color(hex: "#FBBF24"))
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                } else {
+                    Text(msg.text)
+                        .font(.system(size: 12.5))
+                        .foregroundStyle(.white)
+                }
+            }
+            .padding(12)
+            .background(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(Color(hex: "#1A1B24").opacity(0.9))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .stroke(Color.white.opacity(0.06), lineWidth: 1)
+            )
+
+            Spacer()
+        }
+    }
+
+    // MARK: - Input Bar
+
+    private var inputBar: some View {
+        VStack(spacing: 6) {
+            // Quick suggestions strip
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    ForEach(suggestedPrompts.prefix(4), id: \.self) { p in
+                        Button {
+                            submitQuery(p.replacingOccurrences(of: "🤖 ", with: "").replacingOccurrences(of: "⚡ ", with: "").replacingOccurrences(of: "🔋 ", with: "").replacingOccurrences(of: "⏳ ", with: "").replacingOccurrences(of: "🧹 ", with: "").replacingOccurrences(of: "🎵 ", with: "").replacingOccurrences(of: "💰 ", with: ""))
+                        } label: {
+                            Text(p)
+                                .font(.system(size: 10))
+                                .foregroundStyle(.white.opacity(0.7))
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 3.5)
+                                .background(Capsule().fill(Color.white.opacity(0.05)))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.horizontal, 14)
+            }
+            .padding(.top, 4)
+
+            // Textfield & Submit
+            HStack(spacing: 10) {
+                Image(systemName: "sparkle")
+                    .font(.system(size: 14))
+                    .foregroundStyle(Color(hex: "#FBBF24"))
+
+                TextField("Ask Lumen Copilot anything (e.g. Cursor requests, battery runway, what did I build)…", text: $query)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 13))
+                    .foregroundStyle(.white)
+                    .focused($isInputFocused)
+                    .onSubmit {
+                        if !query.isEmpty {
+                            submitQuery(query)
+                        }
+                    }
+
+                if !query.isEmpty {
+                    Button {
+                        submitQuery(query)
+                    } label: {
+                        Image(systemName: "arrow.up.circle.fill")
+                            .font(.system(size: 20))
+                            .foregroundStyle(Color(hex: "#FBBF24"))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .background(Color(hex: "#181922"))
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+            .padding(.horizontal, 14)
+            .padding(.bottom, 10)
+        }
+    }
+
+    // MARK: - Search Results View
+
+    private var searchResultsListView: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+                ForEach(SearchResultCategory.allCases) { cat in
+                    if let items = searchResults[cat], !items.isEmpty {
+                        VStack(alignment: .leading, spacing: 6) {
+                            HStack {
+                                Text(cat.rawValue.uppercased())
+                                    .font(.system(size: 10, weight: .bold))
+                                    .foregroundStyle(.white.opacity(0.4))
+                                Spacer()
+                                Text("\(items.count)")
+                                    .font(.system(size: 9.5))
+                                    .foregroundStyle(.white.opacity(0.3))
+                            }
+
+                            ForEach(items) { item in
+                                HStack(spacing: 8) {
+                                    Image(systemName: item.icon)
+                                        .font(.system(size: 11))
+                                        .foregroundStyle(Color(hex: item.colorHex))
+                                    VStack(alignment: .leading, spacing: 1) {
+                                        Text(item.title).font(.system(size: 12, weight: .semibold)).foregroundStyle(.white)
+                                        Text(item.subtitle).font(.system(size: 10)).foregroundStyle(.white.opacity(0.4))
+                                    }
+                                    Spacer()
+                                }
+                                .padding(8)
+                                .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.04)))
+                            }
+                        }
+                    }
+                }
+            }
+            .padding(14)
+        }
+    }
+
+    // MARK: - Actions
+
+    private func submitQuery(_ text: String) {
+        let q = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !q.isEmpty else { return }
+
+        // Append User Message
+        messages.append(ChatMessage(isUser: true, text: q))
+        query = ""
+
+        // Process Response
+        let response = LumenCopilotEngine.ask(
+            query: q,
             stats: appState.stats,
             spendMonth: appState.spendMonth,
             taxReport: appState.taxReport2026,
@@ -115,109 +448,31 @@ struct SpotlightPaletteView: View {
             power: appState.powerSnapshot,
             renewals: appState.predictedRenewals,
             audioReport: appState.audioFlowReport,
-            gitCommits: appState.gitCommits
+            gitCommits: appState.gitCommits,
+            aiFleet: appState.aiFleetSummary
         )
 
-        return VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 6) {
-                Image(systemName: "bolt.fill")
-                    .font(.system(size: 11, weight: .bold))
-                    .foregroundStyle(Color(hex: "#FBBF24"))
-                Text(copilot.title.uppercased())
-                    .font(.system(size: 9.5, weight: .bold))
-                    .foregroundStyle(Color(hex: "#FBBF24"))
-                    .tracking(1)
-                Spacer()
-                Text("LUMEN SYNTHESIS")
-                    .font(.system(size: 8.5, weight: .bold))
-                    .foregroundStyle(.white.opacity(0.35))
-                    .tracking(1)
-            }
-
-            Text(copilot.answer)
-                .font(.system(size: 12.5, weight: .medium))
-                .foregroundStyle(.white)
-
-            VStack(alignment: .leading, spacing: 4) {
-                ForEach(copilot.bulletPoints, id: \.self) { pt in
-                    HStack(alignment: .top, spacing: 6) {
-                        Text("•").foregroundStyle(AppTheme.accent)
-                        Text(pt).font(.system(size: 11)).foregroundStyle(.white.opacity(0.8))
-                    }
-                }
-            }
-
-            if let pill = copilot.actionPill {
-                HStack {
-                    Spacer()
-                    Button {
-                        if pill == "Optimize in Cloud" {
-                            appState.optimizeAllStorage()
-                        } else if pill == "Export Schedule-C CSV" {
-                            appState.exportScheduleCTaxCSV()
-                        }
-                    } label: {
-                        HStack(spacing: 4) {
-                            Text(pill).font(.system(size: 10, weight: .bold))
-                            Image(systemName: "arrow.right.circle.fill").font(.system(size: 10))
-                        }
-                        .padding(.horizontal, 8).padding(.vertical, 3)
-                        .background(Capsule().fill(AppTheme.accent.opacity(0.2)))
-                        .foregroundStyle(AppTheme.accent)
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
+        // Append Copilot Response
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+            self.messages.append(ChatMessage(isUser: false, text: response.answer, copilotResponse: response))
         }
-        .padding(12)
-        .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(LinearGradient(colors: [Color(hex: "#1A1829"), Color(hex: "#14151C")], startPoint: .topLeading, endPoint: .bottomTrailing))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(Color(hex: "#FBBF24").opacity(0.25), lineWidth: 1)
-        )
-    }
-
-    private var totalResultCount: Int {
-        results.values.reduce(0) { $0 + $1.count }
     }
 
     private func performSearch(_ text: String) {
-        results = LifelogSearchEngine.search(query: text)
+        searchResults = LifelogSearchEngine.search(query: text)
     }
 
-    private func resultRow(_ item: SearchResultItem) -> some View {
-        HStack(spacing: 10) {
-            Image(systemName: item.icon)
-                .font(.system(size: 12))
-                .foregroundStyle(Color(hex: item.colorHex))
-                .frame(width: 24, height: 24)
-                .background(Circle().fill(Color(hex: item.colorHex).opacity(0.12)))
-
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 6) {
-                    Text(item.title)
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .lineLimit(1)
-                    if let badge = item.badge {
-                        Text(badge)
-                            .font(.system(size: 8.5, weight: .bold))
-                            .foregroundStyle(AppTheme.accent)
-                            .padding(.horizontal, 5).padding(.vertical, 1.5)
-                            .background(Capsule().fill(AppTheme.accent.opacity(0.15)))
-                    }
-                }
-                Text(item.subtitle)
-                    .font(.system(size: 10))
-                    .foregroundStyle(.white.opacity(0.45))
-                    .lineLimit(1)
-            }
-            Spacer()
+    private func handleActionPill(_ pill: String) {
+        if pill == "Optimize in Cloud" || pill == "Run Master Turbo Sweep" {
+            appState.runMasterTurboSweep()
+        } else if pill == "View AI Fleet" {
+            appState.refreshAIFleet()
+            dismiss()
+        } else if pill == "Open Standup" {
+            appState.showStandupModal = true
+            dismiss()
+        } else if pill == "Export Schedule-C CSV" {
+            appState.exportScheduleCTaxCSV()
         }
-        .padding(8)
-        .background(RoundedRectangle(cornerRadius: 9).fill(Color.white.opacity(0.04)))
     }
 }

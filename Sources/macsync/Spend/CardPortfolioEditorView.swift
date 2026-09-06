@@ -50,7 +50,7 @@ struct CardPortfolioEditorView: View {
                 .padding(6)
                 .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.06)))
                 .font(.system(size: 11.5))
-                .onChange(of: binding.wrappedValue) { newValue in
+                .onChange(of: binding.wrappedValue) { _, newValue in
                     CardPortfolio.setNickname(newValue, for: digits)
                     appState.refreshSpend()
                 }

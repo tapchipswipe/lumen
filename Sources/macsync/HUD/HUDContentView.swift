@@ -6,6 +6,27 @@ struct HUDContentView: View {
 
     var body: some View {
         HStack(spacing: 12) {
+            // ⌘K Copilot Chat Trigger Button
+            Button {
+                appState.showSpotlightSearch = true
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "sparkles")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(Color(hex: "#FBBF24"))
+                    Text("⌘K")
+                        .font(.system(size: 10, weight: .bold, design: .rounded))
+                        .foregroundStyle(.white.opacity(0.85))
+                }
+                .padding(.horizontal, 6)
+                .padding(.vertical, 3)
+                .background(Capsule().fill(Color.white.opacity(0.08)))
+            }
+            .buttonStyle(.plain)
+            .help("Open Lumen Copilot Chat (⌘K)")
+
+            Divider().frame(height: 14).opacity(0.3)
+
             // Lumen Bolt Indicator
             HStack(spacing: 6) {
                 Image(systemName: "bolt.fill")
@@ -30,7 +51,19 @@ struct HUDContentView: View {
 
             Divider().frame(height: 14).opacity(0.3)
 
-            // Top App / Git Indicator
+            // Cognitive Flow Score Badge
+            HStack(spacing: 4) {
+                Image(systemName: "brain.head.profile")
+                    .font(.system(size: 10))
+                    .foregroundStyle(Color(hex: "#10B981"))
+                Text("Flow: \(appState.cognitiveSnapshot.flowScore)")
+                    .font(.system(size: 11, weight: .bold, design: .rounded))
+                    .foregroundStyle(Color(hex: "#10B981"))
+            }
+
+            Divider().frame(height: 14).opacity(0.3)
+
+            // Top App Indicator
             HStack(spacing: 5) {
                 Image(systemName: "sparkles")
                     .font(.system(size: 10))
@@ -39,6 +72,18 @@ struct HUDContentView: View {
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(.white.opacity(0.85))
                     .lineLimit(1)
+            }
+
+            if isHovered {
+                Button {
+                    appState.showStandupModal = true
+                } label: {
+                    Image(systemName: "doc.text.fill")
+                        .font(.system(size: 11))
+                        .foregroundStyle(AppTheme.accent)
+                        .help("Generate Daily Standup")
+                }
+                .buttonStyle(.plain)
             }
 
             if isHovered {

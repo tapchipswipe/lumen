@@ -72,13 +72,18 @@ enum SpendStats {
         var s = SpendSummary()
         for e in events {
             guard case .receipt(let p) = e.payload else { continue }
-            s.receipts.append(p)
-            s.total += p.amount
-            if p.category.businessDeductible { s.deductibleTotal += p.amount }
-            s.byCategory[p.category, default: 0] += p.amount
-            s.byCard[p.cardLast4 ?? "Unknown", default: 0] += p.amount
-            s.byMerchant[p.merchant, default: 0] += p.amount
-            if p.needsReview { s.needsReviewCount += 1 }
+            let updated = TransactionCustomizer.apply(to: p)
+            s.receipts.append(updated)
+
+            let isInc = TransactionCustomizer.isIncome(for: updated)
+            if !isInc {
+                s.total += updated.amount
+                if updated.category.businessDeductible { s.deductibleTotal += updated.amount }
+                s.byCategory[updated.category, default: 0] += updated.amount
+                s.byCard[updated.cardLast4 ?? "Direct", default: 0] += updated.amount
+                s.byMerchant[updated.merchant, default: 0] += updated.amount
+            }
+            if updated.needsReview { s.needsReviewCount += 1 }
         }
         s.receipts.sort { $0.transactionDate > $1.transactionDate }
 
@@ -158,13 +163,15 @@ enum SpendStats {
               let targetEnd = cal.date(byAdding: .month, value: 1, to: targetStart) else { return [] }
 
         var events: [TrackerEvent] = []
+        // Scan all active buffer files for receipts matching target month
         for day in DataStore.shared.bufferedDays() {
-            guard let d = SyncFormat.dayFormatter.date(from: day) else { continue }
-            if d >= targetStart && d < targetEnd {
-                events += DataStore.shared.events(forDay: day)
+            let dayEvents = DataStore.shared.events(forDay: day)
+            events += dayEvents.filter { e in
+                guard case .receipt(let p) = e.payload else { return false }
+                return p.transactionDate >= targetStart && p.transactionDate < targetEnd
             }
         }
-        // Past synced days in archive directory across 365 days
+        // Past synced days in archive directory across 366 days
         let archived = HistoryLoader.archivedEvents(daysBack: 366)
         for (_, evs) in archived {
             events += evs.filter { e in

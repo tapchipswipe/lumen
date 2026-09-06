@@ -22,7 +22,7 @@ enum SpendOptions {
 
     /// History window: how far back to scan on the first (backfill) pass.
     static var backfillDays: Int {
-        get { d.object(forKey: "macsync.receiptBackfillDays") as? Int ?? 30 }
+        get { d.object(forKey: "macsync.receiptBackfillDays") as? Int ?? 365 }
         set { d.set(newValue, forKey: "macsync.receiptBackfillDays") }
     }
 }

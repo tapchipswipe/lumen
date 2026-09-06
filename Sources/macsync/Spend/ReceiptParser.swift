@@ -70,7 +70,10 @@ enum ReceiptParser {
         SenderRule(domain: "planetfitness.com", merchant: "Planet Fitness", category: .health),
         SenderRule(domain: "equinox.com", merchant: "Equinox", category: .health),
         SenderRule(domain: "cvshealth.com", merchant: "CVS", category: .health),
-        SenderRule(domain: "walgreens.com", merchant: "Walgreens", category: .health)
+        SenderRule(domain: "walgreens.com", merchant: "Walgreens", category: .health),
+        SenderRule(domain: "venmo.com", merchant: "Venmo", category: .business),
+        SenderRule(domain: "paywire.com", merchant: "Paywire", category: .business),
+        SenderRule(domain: "steampowered.com", merchant: "Steam", category: .software)
     ]
 
     // MARK: - Brokerage / Investment / Banking Exclusion Lists
@@ -283,9 +286,10 @@ enum ReceiptParser {
 
         // 9. ESP marketing platforms (Klaviyo, Brevo, SendGrid, etc.)
         let promoDomains = ["klaviyomail.com", "sender-sib.com", "broadridge.net",
-                            "amazonses.com", "sendgrid.net", "mailgun", "postmark", "list-manage.com"]
+                            "sendgrid.net", "mailgun", "postmark", "list-manage.com"]
         if promoDomains.contains(where: { senderLC.contains($0) }) {
-            if !subjLC.contains("receipt") && !subjLC.contains("order") && !subjLC.contains("invoice") {
+            let transactionalWords = ["receipt", "order", "invoice", "payment", "you paid", "paid you", "charge", "ticket", "bill"]
+            if !transactionalWords.contains(where: { subjLC.contains($0) }) {
                 return true
             }
         }

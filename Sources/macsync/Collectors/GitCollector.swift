@@ -2,10 +2,6 @@ import Foundation
 
 final class GitCollector {
     private var timer: Timer?
-    private let repoPaths: [String] = [
-        "/Users/lucasdespot/macsync",
-        "/Users/lucasdespot/paper_trading_bot"
-    ]
 
     func start() {
         timer?.invalidate()
@@ -22,23 +18,57 @@ final class GitCollector {
     }
 
     func poll() {
-        for path in repoPaths {
-            guard FileManager.default.fileExists(atPath: "\(path)/.git") else { continue }
-            let repoName = (path as NSString).lastPathComponent
-            let branch = runGit(args: ["branch", "--show-current"], at: path).trimmingCharacters(in: .whitespacesAndNewlines)
-            let diffStat = runGit(args: ["diff", "--shortstat"], at: path)
-            let diffLines = parseDiffLines(diffStat)
-            let commitCount = countCommitsToday(at: path)
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            guard let self = self else { return }
+            let repos = self.discoverRepositories()
+            for path in repos {
+                guard FileManager.default.fileExists(atPath: "\(path)/.git") else { continue }
+                let repoName = (path as NSString).lastPathComponent
+                let branch = self.runGit(args: ["branch", "--show-current"], at: path).trimmingCharacters(in: .whitespacesAndNewlines)
+                let diffStat = self.runGit(args: ["diff", "--shortstat"], at: path)
+                let diffLines = self.parseDiffLines(diffStat)
+                let commitCount = self.countCommitsToday(at: path)
 
-            let payload = GitVelocityPayload(
-                observedAt: Date(),
-                repoName: repoName,
-                branch: branch.isEmpty ? "main" : branch,
-                uncommittedDiffLines: diffLines,
-                commitsToday: commitCount
-            )
-            DataStore.shared.append(TrackerEvent(ts: Date(), kind: .gitVelocity, payload: .gitVelocity(payload)))
+                let payload = GitVelocityPayload(
+                    observedAt: Date(),
+                    repoName: repoName,
+                    branch: branch.isEmpty ? "main" : branch,
+                    uncommittedDiffLines: diffLines,
+                    commitsToday: commitCount
+                )
+                DataStore.shared.append(TrackerEvent(ts: Date(), kind: .gitVelocity, payload: .gitVelocity(payload)))
+            }
         }
+    }
+
+    private func discoverRepositories() -> [String] {
+        let home = NSHomeDirectory()
+        var discovered: [String] = [
+            "\(home)/macsync",
+            "\(home)/paper_trading_bot"
+        ]
+
+        let searchRoots = [
+            "\(home)/Projects",
+            "\(home)/Documents/Projects",
+            "\(home)/repos",
+            "\(home)/welift_sandbox",
+            "\(home)/Developer",
+            "\(home)/Code"
+        ]
+
+        let fm = FileManager.default
+        for root in searchRoots {
+            guard fm.fileExists(atPath: root),
+                  let entries = try? fm.contentsOfDirectory(atPath: root) else { continue }
+            for entry in entries {
+                let p = "\(root)/\(entry)"
+                if fm.fileExists(atPath: "\(p)/.git") && !discovered.contains(p) {
+                    discovered.append(p)
+                }
+            }
+        }
+        return discovered
     }
 
     private func runGit(args: [String], at cwd: String) -> String {

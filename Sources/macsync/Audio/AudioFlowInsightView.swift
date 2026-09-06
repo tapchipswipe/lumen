@@ -12,6 +12,17 @@ struct AudioFlowInsightView: View {
                     .font(.system(size: 11.5, weight: .bold))
                     .foregroundStyle(Color(hex: "#A78BFA"))
                 Spacer()
+                if appState.crossDeviceReport.mobileFocusMinutes > 0 {
+                    HStack(spacing: 3) {
+                        Image(systemName: "iphone")
+                            .font(.system(size: 8))
+                        Text("\(appState.crossDeviceReport.mobileFocusMinutes)m iPhone")
+                            .font(.system(size: 8.5, weight: .semibold))
+                    }
+                    .foregroundStyle(Color(hex: "#60A5FA"))
+                    .padding(.horizontal, 5).padding(.vertical, 1.5)
+                    .background(Capsule().fill(Color(hex: "#60A5FA").opacity(0.15)))
+                }
                 Text("+\(report.flowStateVelocityBoostPercent)% FLOW VELOCITY")
                     .font(.system(size: 8.5, weight: .bold))
                     .foregroundStyle(AppTheme.batteryGreen)
@@ -24,7 +35,7 @@ struct AudioFlowInsightView: View {
                 .foregroundStyle(.white.opacity(0.6))
 
             VStack(spacing: 6) {
-                ForEach(report.topTracks.prefix(3)) { t in
+                ForEach(report.topTracks.prefix(4)) { t in
                     HStack(spacing: 8) {
                         Image(systemName: "headphones")
                             .font(.system(size: 11))
@@ -45,12 +56,21 @@ struct AudioFlowInsightView: View {
                         Spacer()
 
                         VStack(alignment: .trailing, spacing: 1) {
-                            Text("\(t.avgKeystrokesPerMin) keys/min")
-                                .font(.system(size: 10.5, weight: .bold, design: .rounded))
-                                .foregroundStyle(AppTheme.tileKey)
-                            Text("Score \(t.avgFocusScore)")
-                                .font(.system(size: 8.5))
-                                .foregroundStyle(Color(hex: "#FBBF24"))
+                            if t.avgKeystrokesPerMin > 0 {
+                                Text("\(t.avgKeystrokesPerMin) keys/min")
+                                    .font(.system(size: 10.5, weight: .bold, design: .rounded))
+                                    .foregroundStyle(AppTheme.tileKey)
+                                Text("Score \(t.avgFocusScore)")
+                                    .font(.system(size: 8.5))
+                                    .foregroundStyle(Color(hex: "#FBBF24"))
+                            } else {
+                                Text("\(t.playCount) plays")
+                                    .font(.system(size: 10.5, weight: .semibold, design: .rounded))
+                                    .foregroundStyle(Color(hex: "#A78BFA"))
+                                Text("Library Track")
+                                    .font(.system(size: 8.5))
+                                    .foregroundStyle(.white.opacity(0.4))
+                            }
                         }
                     }
                     .padding(6)

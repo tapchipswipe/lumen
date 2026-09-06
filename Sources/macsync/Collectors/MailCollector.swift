@@ -31,9 +31,15 @@ final class MailCollector {
     }
 
     private func queryMail() {
-        // Never force-launch Mail just to query it.
-        let running = NSWorkspace.shared.runningApplications.contains { $0.bundleIdentifier == "com.apple.mail" }
-        guard running else { return }
+        let wasRunning = NSWorkspace.shared.runningApplications.contains { $0.bundleIdentifier == "com.apple.mail" }
+
+        defer {
+            if !wasRunning {
+                if let mailApp = NSWorkspace.shared.runningApplications.first(where: { $0.bundleIdentifier == "com.apple.mail" }) {
+                    mailApp.terminate()
+                }
+            }
+        }
 
         let source = Self.shouldLogSenders
             ? self.senderScript

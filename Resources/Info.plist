@@ -36,5 +36,9 @@
 	<string>Lumen records periodic location pings so your daily lifelog includes where you were working.</string>
 	<key>NSFocusStatusUsageDescription</key>
 	<string>Lumen reads your Focus status (Do Not Disturb / Work / Personal) so your daily lifelog can show when you were in a Focus state. Only the on/off state is recorded, never the reasons or apps.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Lumen uses the microphone for offline 'Hey Lumen' voice interactions and audio queries.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Lumen uses speech recognition to process 'Hey Lumen' voice commands and queries on-device.</string>
 </dict>
 </plist>

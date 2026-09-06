@@ -53,7 +53,7 @@ enum PowerPacingEngine {
         var plugged = true
         var remainingMins = 420
         var watts: Double = 4.2
-        let cycleCount = 48
+        let cycleCount = getActualCycleCount()
         var thermal = "Nominal"
 
         // Query IOKit Power Sources
@@ -116,5 +116,17 @@ enum PowerPacingEngine {
             narrative: narrative,
             timestamp: Date()
         )
+    }
+
+    private static func getActualCycleCount() -> Int {
+        var cycleCount = 0
+        let service = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching("AppleSmartBattery"))
+        if service != 0 {
+            if let prop = IORegistryEntryCreateCFProperty(service, "CycleCount" as CFString, kCFAllocatorDefault, 0)?.takeRetainedValue() as? Int {
+                cycleCount = prop
+            }
+            IOObjectRelease(service)
+        }
+        return cycleCount > 0 ? cycleCount : 48
     }
 }

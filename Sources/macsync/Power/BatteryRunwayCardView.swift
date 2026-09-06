@@ -65,6 +65,9 @@ struct BatteryRunwayCardView: View {
             }
             .padding(10)
             .background(RoundedRectangle(cornerRadius: 10).fill(Color.white.opacity(0.03)))
+
+            // Real-time Apple Silicon SoC power curve sparkline
+            PowerCurveVisualizerView(powerSnapshot: p, powerHistory: appState.powerHistoryWatts)
         }
         .padding(12)
         .background(

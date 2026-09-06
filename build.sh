@@ -28,6 +28,7 @@ echo "    Project: $PROJECT_DIR"
 
 rm -rf "$BUILD_DIR"
 mkdir -p "$BUILD_DIR"
+touch "$BUILD_DIR/.metadata_never_index"
 
 # ---------------------------------------------------------------------------
 # Path 1: full Xcode via xcodebuild
@@ -128,7 +129,16 @@ echo "==> Installing to /Applications/$APP_NAME.app"
 rm -rf "/Applications/macsync.app" "/Applications/$APP_NAME.app" 2>/dev/null || true
 cp -R "$APP_BUNDLE" "/Applications/$APP_NAME.app" 2>/dev/null || true
 
+LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
+if [ -x "$LSREGISTER" ]; then
+    "$LSREGISTER" -u "$APP_BUNDLE" 2>/dev/null || true
+    "$LSREGISTER" -u "$PROJECT_DIR/build/dmg-staging/$APP_NAME.app" 2>/dev/null || true
+    "$LSREGISTER" -f -R -trusted "/Applications/$APP_NAME.app" 2>/dev/null || true
+fi
+rm -rf "$APP_BUNDLE" "$DMG_STAGING" 2>/dev/null || true
+touch "/Applications/$APP_NAME.app" 2>/dev/null || true
+
 echo ""
 echo "==> BUILD COMPLETE"
-echo "    App: $APP_BUNDLE (and /Applications/$APP_NAME.app)"
+echo "    Installed: /Applications/$APP_NAME.app"
 echo "    DMG: $DMG_PATH ($(du -h "$DMG_PATH" | cut -f1 | tr -d ' '))"

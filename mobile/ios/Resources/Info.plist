@@ -1,0 +1,110 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>en</string>
+	<key>CFBundleDisplayName</key>
+	<string>Lumen</string>
+	<key>CFBundleExecutable</key>
+	<string>LumenMobile</string>
+	<key>CFBundleIdentifier</key>
+	<string>com.lumen.mobile</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>Lumen</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>1.0.0</string>
+	<key>CFBundleVersion</key>
+	<string>1</string>
+	<key>CFBundleSupportedPlatforms</key>
+	<array>
+		<string>iPhoneOS</string>
+	</array>
+	<key>DTPlatformName</key>
+	<string>iphoneos</string>
+	<key>DTSDKName</key>
+	<string>iphoneos17.0</string>
+	<key>MinimumOSVersion</key>
+	<string>17.0</string>
+	<key>UIDeviceFamily</key>
+	<array>
+		<integer>1</integer>
+		<integer>2</integer>
+	</array>
+	<key>LSRequiresIPhoneOS</key>
+	<true/>
+	<key>CFBundleIcons</key>
+	<dict>
+		<key>CFBundlePrimaryIcon</key>
+		<dict>
+			<key>CFBundleIconFiles</key>
+			<array>
+				<string>AppIcon60x60</string>
+				<string>AppIcon40x40</string>
+				<string>AppIcon29x29</string>
+			</array>
+			<key>CFBundleIconName</key>
+			<string>AppIcon</string>
+		</dict>
+	</dict>
+	<key>CFBundleIcons~ipad</key>
+	<dict>
+		<key>CFBundlePrimaryIcon</key>
+		<dict>
+			<key>CFBundleIconFiles</key>
+			<array>
+				<string>AppIcon76x76</string>
+				<string>AppIcon83.5x83.5</string>
+				<string>AppIcon60x60</string>
+				<string>AppIcon40x40</string>
+				<string>AppIcon29x29</string>
+			</array>
+			<key>CFBundleIconName</key>
+			<string>AppIcon</string>
+		</dict>
+	</dict>
+	<key>UIFileSharingEnabled</key>
+	<true/>
+	<key>LSSupportsOpeningDocumentsInPlace</key>
+	<true/>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>Lumen monitors regional dwell time and significant location changes in the background to build your daily cognitive timeline.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Lumen records context and location coordinates while tracking focus sessions.</string>
+	<key>NSMotionUsageDescription</key>
+	<string>Lumen tracks kinetic activity, pedometer cadence, and steps to correlate physical motion with deep focus.</string>
+	<key>NSHealthShareUsageDescription</key>
+	<string>Lumen reads step counts, active energy burned, and sleep duration to correlate biometric health with work output.</string>
+	<key>NSHealthUpdateUsageDescription</key>
+	<string>Lumen records focus session activity to Apple Health.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Lumen uses the camera to scan paper receipts and perform on-device OCR for Schedule-C tax deduction tracking.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Lumen accesses your photo library to import digital receipts and expense screenshots.</string>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>Lumen reads connected AirPods and peripheral battery levels for acoustic and hardware context.</string>
+	<key>NSBluetoothPeripheralUsageDescription</key>
+	<string>Lumen reads audio route metadata from connected Bluetooth headphones.</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>fetch</string>
+		<string>processing</string>
+		<string>location</string>
+	</array>
+	<key>BGTaskSchedulerPermittedIdentifiers</key>
+	<array>
+		<string>com.lumen.mobile.refresh</string>
+		<string>com.lumen.mobile.processing</string>
+	</array>
+	<key>UILaunchScreen</key>
+	<dict/>
+	<key>UISupportedInterfaceOrientations</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+	</array>
+</dict>
+</plist>

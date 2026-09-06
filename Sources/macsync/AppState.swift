@@ -33,6 +33,7 @@ final class AppState: ObservableObject {
     private let networkQualityCollector = NetworkQualityCollector()
     private let notificationTracker = NotificationTracker()
     private let diskHygieneCollector = DiskHygieneCollector()
+    private let crossDeviceCollector = CrossDeviceScreenTimeCollector.shared
     private let syncEngine = iCloudSync()
     private(set) lazy var scheduler = SyncScheduler(syncEngine: syncEngine)
     let updater = UpdateChecker.shared
@@ -40,6 +41,7 @@ final class AppState: ObservableObject {
     @Published var isTracking = false
     @Published var stats = TodayStats.empty
     @Published var todayStory = DayStory.empty
+    @Published var crossDeviceReport: CrossDeviceScreenTimeReport = .empty
     @Published var spendToday = SpendSummary.empty
     @Published var spendMonth = SpendSummary.empty
     @Published var selectedSpendMonthOffset: Int = 0 {
@@ -56,9 +58,17 @@ final class AppState: ObservableObject {
     @Published var storageSnapshot: StorageSnapshot = .empty
     @Published var zombieAlerts: [ZombieSubscriptionAlert] = []
     @Published var powerSnapshot: PowerSnapshot = .empty
+    @Published var powerHistoryWatts: [Double] = [3.8, 4.1, 4.5, 4.0, 5.2, 4.8, 3.9, 4.3, 4.6, 4.2]
+    @Published var cognitiveSnapshot: CognitiveFragmentationSnapshot = .empty
+    @Published var dailyStandup: DailyStandupReport = .empty
+    @Published var selectedReceiptForEditing: ReceiptPayload? = nil
+    @Published var showTransactionEditor: Bool = false
+    @Published var showStandupModal: Bool = false
     @Published var gitCommits: [GitCommitNode] = []
     @Published var predictedRenewals: [PredictedRenewal] = []
     @Published var audioFlowReport: AudioFlowReport = .empty
+    @Published var healthSnapshot: AppleHealthSnapshot = .empty
+    @Published var aiFleetSummary: AIFleetSummary = .empty
     @Published var isHUDVisible: Bool = false
     @Published var isTurboSweeping: Bool = false
     @Published var turboSweepProgress: Double = 0.0
@@ -97,8 +107,6 @@ final class AppState: ObservableObject {
         refreshStats()
         refreshLaunchAtLoginStatus()
         refreshPermissionStatus()
-        refreshAggregation()    // seed stats immediately on init
-        startAggregationTimer()
     }
 
     // MARK: - Lifecycle
@@ -108,6 +116,10 @@ final class AppState: ObservableObject {
         DataStore.shared.pruneInvalidReceipts()
         permissions.runOnboardingIfNeeded(locationTracker: locationTracker)
         startTracking()
+        startAggregationTimer()
+        Task { @MainActor in
+            self.refreshAggregation()
+        }
         scheduler.start()
         nextScheduledSync = scheduler.nextScheduledSync
         scheduler.onSyncFired = { [weak self] in
@@ -121,6 +133,7 @@ final class AppState: ObservableObject {
         }
         updater.start()
         startLocationPingTimer()
+        startHealthFileWatcher()
     }
 
     func applicationWillTerminate() {
@@ -155,6 +168,7 @@ final class AppState: ObservableObject {
         networkQualityCollector.start()
         notificationTracker.start()
         diskHygieneCollector.start()
+        crossDeviceCollector.start()
         locationTracker.start()
         AutoEvictionGuardian.shared.start()
         isTracking = true
@@ -185,6 +199,7 @@ final class AppState: ObservableObject {
         networkQualityCollector.stop()
         notificationTracker.stop()
         diskHygieneCollector.stop()
+        crossDeviceCollector.stop()
         locationTracker.stop()
         AutoEvictionGuardian.shared.stop()
         isTracking = false
@@ -221,9 +236,18 @@ final class AppState: ObservableObject {
         financialForecast = FinancialForecaster.computeForecast(spendMonth: spendMonth, taxReport: taxReport2026)
         
         powerSnapshot = PowerPacingEngine.captureSnapshot()
+        powerHistoryWatts.append(powerSnapshot.estimatedWatts)
+        if powerHistoryWatts.count > 30 {
+            powerHistoryWatts.removeFirst()
+        }
+
         gitCommits = GitVelocityLinker.scanRecentCommits()
         timeMachineFrames = TimeMachineEngine.buildTimeline(events: events, gitCommits: gitCommits)
+        cognitiveSnapshot = CognitiveFragmentationEngine.compute(todayStats: stats, frames: timeMachineFrames, liveKeystrokes: liveKeystrokes)
+        dailyStandup = StandupGeneratorEngine.generate(stats: stats, frames: timeMachineFrames, cognitive: cognitiveSnapshot)
+
         audioFlowReport = AudioFlowProfiler.analyzeAudioFlow(events: events)
+        crossDeviceReport = crossDeviceCollector.generateReport()
         workspaceClusters = WorkspaceClusterEngine.analyze(events: events)
         storageSnapshot = iCloudStorageOptimizer.scanStorage()
 
@@ -234,6 +258,19 @@ final class AppState: ObservableObject {
             appMap[app.name] = app.seconds
         }
         zombieAlerts = ZombieDetector.detectZombies(subscriptions: subscriptions.activeSubscriptions, appUsage30Days: appMap)
+
+        // Apple Health — load from cache synchronously, refresh async in background
+        healthSnapshot = AppleHealthEngine.latestSnapshot()
+        AppleHealthEngine.refresh { [weak self] snap in
+            self?.healthSnapshot = snap
+        }
+
+        // AI Fleet Telemetry & Multi-Account Quota Radar
+        aiFleetSummary = AIFleetTelemetryCollector.scanFleet()
+    }
+
+    func refreshAIFleet() {
+        aiFleetSummary = AIFleetTelemetryCollector.scanFleet()
     }
 
     func toggleHUD() {
@@ -250,74 +287,148 @@ final class AppState: ObservableObject {
         refreshAggregation()
     }
 
+    func rescanMailReceipts() {
+        receiptCollector.forceRescan()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 4.0) {
+            self.refreshAggregation()
+        }
+    }
+
     func refreshStorage() {
         storageSnapshot = iCloudStorageOptimizer.scanStorage()
     }
 
     func optimizeAllStorage() {
-        _ = runMasterTurboSweep()
+        runMasterTurboSweep()
     }
 
-    /// Master 1-Click Zero-Footprint Turbo Sweep: executes all 6 storage optimizations in a single pass with live progress reporting.
-    func runMasterTurboSweep() -> Int64 {
+    /// Master 1-Click Zero-Footprint Turbo Sweep: executes all 6 storage optimizations on a background queue with live progress reporting on the MainActor.
+    func runMasterTurboSweep(completion: (@MainActor @Sendable (Int64) -> Void)? = nil) {
+        guard !isTurboSweeping else { return }
         isTurboSweeping = true
         turboSweepProgress = 0.05
         turboSweepStepName = "Scanning storage candidates & calculating sizes…"
         turboSweepReclaimedSoFar = 0
 
-        var totalReclaimed: Int64 = 0
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            var totalReclaimed: Int64 = 0
 
-        // 1. Triage downloads (DMGs, media, stale docs moved to iCloud and evicted)
-        turboSweepProgress = 0.20
-        turboSweepStepName = "Step 1/5: Triaging stale downloads & routing to iCloud…"
-        let (_, dlBytes) = DownloadTriageEngine.executeTriage()
-        totalReclaimed += dlBytes
-        turboSweepReclaimedSoFar = totalReclaimed
+            // 1. Triage downloads (DMGs, media, stale docs moved to iCloud and evicted)
+            let triagePlan = DownloadTriageEngine.planTriage()
+            let totalTriage = max(1, triagePlan.count)
+            DispatchQueue.main.async {
+                self?.turboSweepProgress = 0.15
+                self?.turboSweepStepName = triagePlan.isEmpty ? "Step 1/5: Downloads folder clean (0 to triage)" : "Step 1/5: Triaging \(triagePlan.count) downloads to iCloud…"
+            }
 
-        // 2. Evict unpinned iCloud items & backup snapshots
-        turboSweepProgress = 0.45
-        turboSweepStepName = "Step 2/5: Evicting unpinned iCloud files to cloud…"
-        let snapshot = iCloudStorageOptimizer.scanStorage()
-        for candidate in snapshot.candidates {
-            if (candidate.category == .iCloudEvictable || candidate.category == .duplicateFile) && !FolderPinningEngine.isProtectedFromEviction(path: candidate.path) {
+            for (idx, item) in triagePlan.enumerated() {
+                let p = 0.15 + (0.25 * Double(idx + 1) / Double(totalTriage))
+                DispatchQueue.main.async {
+                    self?.turboSweepProgress = min(0.40, p)
+                    self?.turboSweepStepName = "Step 1/5: Archiving \(item.filename) (\(idx + 1)/\(triagePlan.count))…"
+                }
+
+                let targetDir = (item.targetCloudPath as NSString).deletingLastPathComponent
+                try? FileManager.default.createDirectory(atPath: targetDir, withIntermediateDirectories: true)
+                do {
+                    if FileManager.default.fileExists(atPath: item.targetCloudPath) {
+                        try FileManager.default.removeItem(atPath: item.targetCloudPath)
+                    }
+                    try FileManager.default.moveItem(atPath: item.sourcePath, toPath: item.targetCloudPath)
+                    _ = iCloudStorageOptimizer.evictItem(atPath: item.targetCloudPath)
+                    totalReclaimed += item.sizeBytes
+                    let cur = totalReclaimed
+                    DispatchQueue.main.async {
+                        self?.turboSweepReclaimedSoFar = cur
+                    }
+                } catch {
+                    continue
+                }
+            }
+
+            // 2. Evict unpinned iCloud items & backup snapshots
+            let snapshot = iCloudStorageOptimizer.scanStorage()
+            let evictable = snapshot.candidates.filter {
+                $0.category == .iCloudEvictable && !FolderPinningEngine.isProtectedFromEviction(path: $0.path)
+            }
+            let totalEvictable = max(1, evictable.count)
+
+            DispatchQueue.main.async {
+                self?.turboSweepProgress = 0.45
+                self?.turboSweepStepName = evictable.isEmpty ? "Step 2/5: All iCloud files already offloaded to cloud" : "Step 2/5: Evicting \(evictable.count) unpinned iCloud files…"
+            }
+
+            for (idx, candidate) in evictable.enumerated() {
+                let p = 0.45 + (0.25 * Double(idx + 1) / Double(totalEvictable))
+                DispatchQueue.main.async {
+                    self?.turboSweepProgress = min(0.70, p)
+                    self?.turboSweepStepName = "Step 2/5: Evicting \(candidate.title) (\(idx + 1)/\(evictable.count))…"
+                }
                 if iCloudStorageOptimizer.evictItem(atPath: candidate.path) {
                     totalReclaimed += candidate.sizeBytes
-                    turboSweepReclaimedSoFar = totalReclaimed
+                    let cur = totalReclaimed
+                    DispatchQueue.main.async {
+                        self?.turboSweepReclaimedSoFar = cur
+                    }
+                }
+            }
+
+            // 3. Trim all developer bloat (node_modules, .venv, .build)
+            let bloatList = DeveloperProjectTrimmer.scanDeveloperBloat()
+            let totalBloat = max(1, bloatList.count)
+            DispatchQueue.main.async {
+                self?.turboSweepProgress = 0.70
+                self?.turboSweepStepName = bloatList.isEmpty ? "Step 3/5: Developer build caches clean" : "Step 3/5: Trimming \(bloatList.count) dev bloat folders…"
+            }
+
+            for (idx, b) in bloatList.enumerated() {
+                let p = 0.70 + (0.15 * Double(idx + 1) / Double(totalBloat))
+                DispatchQueue.main.async {
+                    self?.turboSweepProgress = min(0.85, p)
+                    self?.turboSweepStepName = "Step 3/5: Trimming \(b.projectName)/\(b.bloatType)…"
+                }
+                if DeveloperProjectTrimmer.trimCandidate(b) {
+                    totalReclaimed += b.sizeBytes
+                    let cur = totalReclaimed
+                    DispatchQueue.main.async {
+                        self?.turboSweepReclaimedSoFar = cur
+                    }
+                }
+            }
+
+            // 4. Resolve conflicted duplicate files
+            DispatchQueue.main.async {
+                self?.turboSweepProgress = 0.85
+                self?.turboSweepStepName = "Step 4/5: Resolving conflicted duplicate cloud files…"
+            }
+            _ = iCloudSyncRadar.resolveAllConflicts()
+
+            // 5. Purge disposable system caches
+            DispatchQueue.main.async {
+                self?.turboSweepProgress = 0.95
+                self?.turboSweepStepName = "Step 5/5: Purging disposable system caches & DerivedData…"
+            }
+            let cacheBytes = iCloudStorageOptimizer.purgeUserCaches()
+            totalReclaimed += cacheBytes
+            let finalReclaimed = totalReclaimed
+
+            let newSnapshot = iCloudStorageOptimizer.scanStorage()
+
+            DispatchQueue.main.async {
+                self?.storageSnapshot = newSnapshot
+                self?.turboSweepProgress = 1.0
+                self?.turboSweepReclaimedSoFar = finalReclaimed
+                let formatted = ByteCountFormatter.string(fromByteCount: finalReclaimed, countStyle: .file)
+                self?.turboSweepStepName = "✓ Complete! Reclaimed \(formatted) local disk space."
+                completion?(finalReclaimed)
+
+                DispatchQueue.main.asyncAfter(deadline: .now() + 4.5) { [weak self] in
+                    self?.isTurboSweeping = false
+                    self?.turboSweepProgress = 0.0
+                    self?.turboSweepStepName = ""
                 }
             }
         }
-
-        // 3. Trim all developer bloat (node_modules, .venv, .build)
-        turboSweepProgress = 0.70
-        turboSweepStepName = "Step 3/5: Trimming developer node_modules & build artifacts…"
-        let devBytes = DeveloperProjectTrimmer.trimAllCandidates()
-        totalReclaimed += devBytes
-        turboSweepReclaimedSoFar = totalReclaimed
-
-        // 4. Resolve conflicted duplicate files
-        turboSweepProgress = 0.85
-        turboSweepStepName = "Step 4/5: Resolving conflicted duplicate cloud files…"
-        _ = iCloudSyncRadar.resolveAllConflicts()
-
-        // 5. Purge disposable system caches
-        turboSweepProgress = 0.95
-        turboSweepStepName = "Step 5/5: Purging disposable system caches & Xcode DerivedData…"
-        let cacheBytes = iCloudStorageOptimizer.purgeUserCaches()
-        totalReclaimed += cacheBytes
-        turboSweepReclaimedSoFar = totalReclaimed
-
-        turboSweepProgress = 1.0
-        let formatted = ByteCountFormatter.string(fromByteCount: totalReclaimed, countStyle: .file)
-        turboSweepStepName = "✓ Complete! Reclaimed \(formatted) local disk space."
-        refreshStorage()
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + 4.5) { [weak self] in
-            self?.isTurboSweeping = false
-            self?.turboSweepProgress = 0.0
-            self?.turboSweepStepName = ""
-        }
-
-        return totalReclaimed
     }
 
     func optimizeSpecificCandidate(_ candidate: StorageOptimizationCandidate) {
@@ -326,7 +437,7 @@ final class AppState: ObservableObject {
         } else if candidate.category == .downloadsArchive {
             _ = iCloudStorageOptimizer.archiveToCloudAndEvict(sourcePath: candidate.path)
         } else if candidate.category == .cachePurge {
-            _ = iCloudStorageOptimizer.purgeUserCaches()
+            _ = try? FileManager.default.removeItem(atPath: candidate.path)
         }
         refreshStorage()
     }
@@ -420,6 +531,25 @@ final class AppState: ObservableObject {
         }
         RunLoop.main.add(timer, forMode: .common)
         locationPingTimer = timer
+    }
+
+    private func startHealthFileWatcher() {
+        AppleHealthFileWatcher.shared.start { [weak self] snap in
+            guard let self else { return }
+            self.healthSnapshot = snap
+            AppleHealthEngine.refresh { [weak self] fresh in
+                self?.healthSnapshot = fresh
+            }
+        }
+    }
+
+    @MainActor
+    func triggerHealthShortcut() {
+        LumenHealthShortcuts.runShortcut { success in
+            if success {
+                // Watcher will pick up the new file automatically
+            }
+        }
     }
 
     // MARK: - Permissions

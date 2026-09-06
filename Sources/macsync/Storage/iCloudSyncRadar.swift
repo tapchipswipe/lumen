@@ -42,8 +42,8 @@ public enum iCloudSyncRadar {
         let fm = FileManager.default
 
         var conflicts: [iCloudConflictItem] = []
-        var syncingCount = 0
-        var pendingUploads = 0
+        let syncingCount = 0
+        let pendingUploads = 0
 
         guard fm.fileExists(atPath: cloudRoot) else {
             return .healthy
@@ -57,7 +57,20 @@ public enum iCloudSyncRadar {
                 if checked > 300 { break }
 
                 let name = fileURL.lastPathComponent
-                if name.contains(" 2.") || name.contains(" (1).") || name.contains(" (conflicted copy") {
+                let parentURL = fileURL.deletingLastPathComponent()
+
+                var isConflict = false
+                if name.contains(" (conflicted copy") || name.contains(" (conflict ") {
+                    isConflict = true
+                } else if name.contains(" (1).") {
+                    let baseName = name.replacingOccurrences(of: " (1).", with: ".")
+                    let originalFileURL = parentURL.appendingPathComponent(baseName)
+                    if fm.fileExists(atPath: originalFileURL.path) {
+                        isConflict = true
+                    }
+                }
+
+                if isConflict {
                     let size = (try? fileURL.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
                     conflicts.append(iCloudConflictItem(
                         originalName: name,

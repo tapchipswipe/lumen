@@ -1,21 +1,17 @@
 import AppKit
 import Foundation
 
-/// Scans Apple Mail for receipt-like messages and emits `ReceiptPayload`
-/// events into the same buffer as every other collector.
-///
-/// Privacy: **off by default** (`macsync.receiptCaptureEnabled`). Pass A lists
-/// recent message ids + subjects/senders only; pass B fetches bodies **only**
-/// for ids whose subject/sender already matched
-/// `ReceiptParser.looksLikeReceipt`. Only parsed fields are stored — never raw
-/// content. Dedup by message id keeps the scan idempotent across polls/restarts.
+/// Scans Apple Mail for receipt-like messages across 2026 and emits `ReceiptPayload`
+/// events into the same DataStore buffer as every other collector.
 final class ReceiptMailCollector {
     private let store = DataStore.shared
     private let queue = DispatchQueue(label: "com.macsync.receipts", qos: .utility)
     private var timer: DispatchSourceTimer?
+    private var isScanning: Bool = false
 
     private let pollInterval: TimeInterval = 30 * 60   // every 30 minutes
-    private let maxCandidates = 400                    // cap pass A size
+    private let chunkSize = 150                        // 150 messages per chunk
+    private let maxMessagesToScan = 2500               // deep scan up to 2,500 messages
 
     // MARK: - Lifecycle
 
@@ -23,12 +19,10 @@ final class ReceiptMailCollector {
         stop()
         guard SpendOptions.captureEnabled else { return }
         let timer = DispatchSource.makeTimerSource(queue: queue)
-        // First scan shortly after launch (backfills recent window), then every 30 min.
-        timer.schedule(deadline: .now() + 15, repeating: pollInterval)
+        timer.schedule(deadline: .now() + 10, repeating: pollInterval)
         timer.setEventHandler { [weak self] in self?.scan() }
         timer.resume()
         self.timer = timer
-        // Also run one immediate scan so we don't wait 15s on first enable.
         queue.asyncAfter(deadline: .now() + 2) { [weak self] in self?.scan() }
     }
 
@@ -37,56 +31,117 @@ final class ReceiptMailCollector {
         timer = nil
     }
 
-    // MARK: - Scan
+    func forceRescan() {
+        queue.async { [weak self] in
+            guard let self = self else { return }
+            try? FileManager.default.removeItem(at: self.stateFile)
+            self.scan()
+        }
+    }
+
+    // MARK: - Progressive Chunked Scan
 
     private func scan() {
-        guard SpendOptions.captureEnabled else { Log.app.error("receipt scan skipped: capture disabled"); return }
-        // Never force-launch Mail just to scan it.
-        let running = NSWorkspace.shared.runningApplications.contains { $0.bundleIdentifier == "com.apple.mail" }
-        guard running else { Log.app.error("receipt scan skipped: Mail not running"); return }
+        guard SpendOptions.captureEnabled else { return }
+        guard !isScanning else { return }
+        isScanning = true
+        defer { isScanning = false }
 
-        let processed = processedMessageIDs
-        Log.app.error("receipt scan starting, \(processed.count) already processed")
-        guard let candidates = listCandidates() else { Log.app.error("receipt scan: listCandidates returned nil"); return }
-        Log.app.error("receipt scan: \(candidates.count) candidates after filtering, \(candidates.filter { !processed.contains($0.id) }.count) fresh")
-        let fresh = candidates.filter { !processed.contains($0.id) }
-        guard !fresh.isEmpty else { return }
-
-        // Fetch bodies only for the shortlist, then parse + store.
-        let details = fetchDetails(ids: fresh.map(\.id))
-        for detail in details {
-            let parsed = ReceiptParser.parse(subject: detail.subject, sender: detail.sender,
-                                             body: detail.body, sentDate: detail.date)
-            guard let amount = parsed.amount, amount > 0 else {
-                // No amount, or $0 total (statement / promo / declined) → not a real purchase.
-                Log.app.error("receipt skipped (no/$0 amount): \(detail.subject.prefix(60))")
-                continue
+        let wasRunning = NSWorkspace.shared.runningApplications.contains { $0.bundleIdentifier == "com.apple.mail" }
+        defer {
+            if !wasRunning {
+                if let mailApp = NSWorkspace.shared.runningApplications.first(where: { $0.bundleIdentifier == "com.apple.mail" }) {
+                    mailApp.terminate()
+                }
             }
-            let merchant = parsed.merchant ?? Self.merchantGuess(from: detail.sender)
-            let payload = ReceiptPayload(
-                id: UUID(),
-                merchant: merchant,
-                amount: amount,
-                currency: parsed.currency ?? "USD",
-                cardLast4: parsed.cardLast4,
-                category: ReceiptCategorizer.category(for: merchant),
-                transactionDate: parsed.transactionDate ?? detail.date,
-                capturedAt: Date(),
-                source: "mail",
-                mailMessageID: detail.id,
-                confidence: parsed.confidence,
-                needsReview: parsed.needsReview,
-                notes: nil)
-            Log.app.error("receipt stored: \(merchant) \(amount) card=\(payload.cardLast4 ?? "none") cat=\(payload.category.rawValue)")
-            store.append(TrackerEvent(ts: detail.date, kind: .receipt, payload: .receipt(payload)))
         }
-        // Mark every fetched id processed (even no-amount: not a purchase).
-        let newlyProcessed = details.map(\.id)
-        if !newlyProcessed.isEmpty { process(newlyProcessed) }
+
+        let cutoffDays = SpendOptions.backfillDays
+        let cal = Calendar.current
+        let cutoffDate = cal.date(byAdding: .day, value: -cutoffDays, to: Date()) ?? Date()
+
+        var currentStart = 1
+        var shouldContinue = true
+
+        while currentStart < maxMessagesToScan && shouldContinue {
+            let chunkEnd = currentStart + chunkSize - 1
+            guard let batch = fetchCandidateBatch(start: currentStart, end: chunkEnd) else {
+                break
+            }
+
+            if batch.isEmpty { break }
+
+            let processed = processedMessageIDs
+            var freshCandidates: [Candidate] = []
+
+            for item in batch {
+                if item.date < cutoffDate {
+                    // Reached beyond 2026 backfill window
+                    shouldContinue = false
+                    break
+                }
+
+                if !processed.contains(item.id) && ReceiptParser.looksLikeReceipt(subject: item.subject, sender: item.sender) {
+                    freshCandidates.append(item)
+                }
+            }
+
+            if !freshCandidates.isEmpty {
+                let details = fetchDetails(ids: freshCandidates.map(\.id))
+                var newlySaved = 0
+
+                for detail in details {
+                    let parsed = ReceiptParser.parse(
+                        subject: detail.subject,
+                        sender: detail.sender,
+                        body: detail.body,
+                        sentDate: detail.date
+                    )
+
+                    guard let amount = parsed.amount, amount > 0 else {
+                        continue
+                    }
+
+                    let merchant = parsed.merchant ?? Self.merchantGuess(from: detail.sender)
+                    let txDate = parsed.transactionDate ?? detail.date
+                    let payload = ReceiptPayload(
+                        id: UUID(),
+                        merchant: merchant,
+                        amount: amount,
+                        currency: parsed.currency ?? "USD",
+                        cardLast4: parsed.cardLast4,
+                        category: ReceiptCategorizer.category(for: merchant),
+                        transactionDate: txDate,
+                        capturedAt: Date(),
+                        source: "mail",
+                        mailMessageID: detail.id,
+                        confidence: parsed.confidence,
+                        needsReview: parsed.needsReview,
+                        notes: nil
+                    )
+
+                    store.append(TrackerEvent(ts: txDate, kind: .receipt, payload: .receipt(payload)))
+                    newlySaved += 1
+                }
+
+                process(freshCandidates.map(\.id))
+
+                if newlySaved > 0 {
+                    DispatchQueue.main.async {
+                        AppState.shared.refreshSpend()
+                    }
+                }
+            }
+
+            currentStart += chunkSize
+        }
+
+        DispatchQueue.main.async {
+            AppState.shared.refreshSpend()
+        }
     }
 
     private static func merchantGuess(from sender: String) -> String {
-        // "Foo Receipts <receipts@foo.com>" → "Foo Receipts"; else domain.
         let v = sender.components(separatedBy: "<").first?.trimmingCharacters(in: .whitespaces) ?? ""
         if !v.isEmpty, !v.contains("@") { return v }
         let domain = sender.replacingOccurrences(of: ".*@", with: "", options: .regularExpression)
@@ -94,9 +149,15 @@ final class ReceiptMailCollector {
         return domain.capitalized
     }
 
-    // MARK: - AppleScript passes
+    // MARK: - AppleScript Chunk Queries
 
-    private struct Candidate { let id: String }
+    private struct Candidate {
+        let id: String
+        let subject: String
+        let sender: String
+        let date: Date
+    }
+
     private struct Detail {
         let id: String
         let subject: String
@@ -108,8 +169,7 @@ final class ReceiptMailCollector {
     private let fld = "`FLD`"
     private let row = "`ROW`"
 
-    /// Pass A: recent message ids + subjects + senders (no body reads).
-    private func listCandidates() -> [Candidate]? {
+    private func fetchCandidateBatch(start: Int, end: Int) -> [Candidate]? {
         let script = """
         on esc(s)
             set out to s
@@ -127,33 +187,47 @@ final class ReceiptMailCollector {
 
         tell application "Mail"
             set out to ""
-            set cutoff to (current date) - (\(SpendOptions.backfillDays) * days)
-            set recent to (every message of inbox whose date received is greater than cutoff)
-            set n to count of recent
-            if n is greater than \(maxCandidates) then set recent to items 1 thru \(maxCandidates) of recent
-            repeat with m in recent
-                set mid to (message id of m) as text
-                if mid is not "" then
-                    set out to out & mid & "\(fld)" & my esc(subject of m) & "\(fld)" & my esc(sender of m) & "\(row)"
-                end if
+            set totalCount to count of messages of inbox
+            if totalCount < \(start) then return ""
+            set endIdx to \(end)
+            if totalCount < endIdx then set endIdx to totalCount
+            
+            set msgList to (messages \(start) thru endIdx of inbox)
+            repeat with m in msgList
+                try
+                    set mid to (message id of m) as text
+                    if mid is not "" then
+                        set subj to subject of m
+                        set sndr to sender of m
+                        set epochSec to ((date received of m) - (date "Thursday, January 1, 1970 at 12:00:00 AM")) as text
+                        set out to out & mid & "\(fld)" & my esc(subj) & "\(fld)" & my esc(sndr) & "\(fld)" & epochSec & "\(row)"
+                    end if
+                end try
             end repeat
             return out
         end tell
         """
-        guard let raw = runScript(script), !raw.isEmpty else { return nil }
+
+        guard let raw = runScript(script), !raw.isEmpty else { return [] }
         return raw.components(separatedBy: row)
             .filter { !$0.isEmpty }
-            .map { $0.components(separatedBy: fld) }
-            .filter { $0.count >= 3 && ReceiptParser.looksLikeReceipt(subject: $0[1], sender: $0[2]) }
-            .map { Candidate(id: $0[0]) }
+            .compactMap { line -> Candidate? in
+                let parts = line.components(separatedBy: fld)
+                guard parts.count >= 4, let epoch = Double(parts[3]) else { return nil }
+                return Candidate(
+                    id: parts[0],
+                    subject: Self.unescape(parts[1]),
+                    sender: Self.unescape(parts[2]),
+                    date: Date(timeIntervalSince1970: epoch)
+                )
+            }
     }
 
-    /// Pass B: fetch subject/sender/body/date for the chosen ids only.
     private func fetchDetails(ids: [String]) -> [Detail] {
         guard !ids.isEmpty else { return [] }
-        Log.app.error("fetchDetails: fetching \(ids.count) messages")
         let idList = ids.map { $0.replacingOccurrences(of: "\"", with: "").replacingOccurrences(of: "\\", with: "") }
             .map { "\"\($0)\"" }.joined(separator: ", ")
+
         let script = """
         on esc(s)
             set out to s
@@ -181,15 +255,20 @@ final class ReceiptMailCollector {
             return out
         end tell
         """
+
         guard let raw = runScript(script) else { return [] }
         return raw.components(separatedBy: row)
             .filter { !$0.isEmpty }
             .compactMap { line -> Detail? in
                 let parts = line.components(separatedBy: fld)
                 guard parts.count >= 5, let epoch = Double(parts[4]) else { return nil }
-                return Detail(id: parts[0], subject: Self.unescape(parts[1]),
-                              sender: Self.unescape(parts[2]), body: Self.unescape(parts[3]),
-                              date: Date(timeIntervalSince1970: epoch))
+                return Detail(
+                    id: parts[0],
+                    subject: Self.unescape(parts[1]),
+                    sender: Self.unescape(parts[2]),
+                    body: Self.unescape(parts[3]),
+                    date: Date(timeIntervalSince1970: epoch)
+                )
             }
     }
 
@@ -208,7 +287,7 @@ final class ReceiptMailCollector {
         s.replacingOccurrences(of: "\\n", with: "\n").replacingOccurrences(of: "\\t", with: "\t")
     }
 
-    // MARK: - Dedup state (message ids already processed)
+    // MARK: - Dedup state
 
     private var stateFile: URL { store.stateDir.appendingPathComponent("processed-receipt-messages.json") }
 
@@ -220,7 +299,7 @@ final class ReceiptMailCollector {
 
     private func process(_ ids: [String]) {
         let existing = processedMessageIDs
-        let merged = Array(Array(existing.union(ids)).sorted().suffix(2000))   // prune very old ids
+        let merged = Array(Array(existing.union(ids)).sorted().suffix(5000))
         if let data = try? SyncFormat.jsonEncoder.encode(merged) {
             try? data.write(to: stateFile, options: .atomic)
         }

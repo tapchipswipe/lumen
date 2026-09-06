@@ -7,6 +7,30 @@ enum DashRange: String, CaseIterable, Identifiable {
     var daysBack: Int { self == .week ? 7 : 30 }
 }
 
+enum DashboardTab: String, CaseIterable, Identifiable {
+    case overview = "Today"
+    case attention = "Attention & Flow"
+    case financial = "Financial & Tax"
+    case storage = "iCloud Storage"
+    case power = "Apple Silicon"
+    case health = "Apple Health"
+    case trends = "Cross-Device & Trends"
+
+    var id: String { rawValue }
+
+    var icon: String {
+        switch self {
+        case .overview: return "bolt.fill"
+        case .attention: return "brain.head.profile"
+        case .financial: return "creditcard.fill"
+        case .storage: return "icloud.fill"
+        case .power: return "battery.100percent.bolt"
+        case .health: return "heart.fill"
+        case .trends: return "iphone.and.arrow.forward"
+        }
+    }
+}
+
 struct ClipboardPoint: Identifiable {
     let id = UUID()
     let hour: Int
@@ -16,6 +40,7 @@ struct ClipboardPoint: Identifiable {
 struct DashboardView: View {
     @EnvironmentObject private var appState: AppState
     @ObservedObject private var appHistory = AppHistoryStore.shared
+    @State private var selectedTab: DashboardTab = .overview
     @State private var range: DashRange = .today
     private static let timeFmt: DateFormatter = {
         let f = DateFormatter(); f.dateFormat = "EEEE, MMM d"; return f
@@ -23,6 +48,7 @@ struct DashboardView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            // Top Navigation & Branding Bar
             HStack {
                 HStack(spacing: 7) {
                     Image(systemName: "bolt.fill")
@@ -33,15 +59,70 @@ struct DashboardView: View {
                         .foregroundStyle(.white)
                         .tracking(1.5)
                 }
+
                 Spacer()
-                Picker("", selection: $range) {
-                    ForEach(DashRange.allCases) { Text($0.rawValue).tag($0) }
+
+                // Standup Quick Action
+                Button {
+                    appState.showStandupModal = true
+                } label: {
+                    HStack(spacing: 5) {
+                        Image(systemName: "sparkles")
+                        Text("Daily Standup")
+                    }
+                    .font(.system(size: 11, weight: .bold))
+                    .padding(.horizontal, 10).padding(.vertical, 5)
+                    .background(Capsule().fill(Color(hex: "#FBBF24").opacity(0.18)))
+                    .foregroundStyle(Color(hex: "#FBBF24"))
                 }
-                .pickerStyle(.segmented)
-                .frame(width: 240)
+                .buttonStyle(.plain)
+
+                // Search Quick Action
+                Button {
+                    appState.showSpotlightSearch = true
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "magnifyingglass")
+                        Text("Search ⌘K")
+                    }
+                    .font(.system(size: 11, weight: .semibold))
+                    .padding(.horizontal, 10).padding(.vertical, 5)
+                    .background(Capsule().fill(Color.white.opacity(0.08)))
+                    .foregroundStyle(.white.opacity(0.85))
+                }
+                .buttonStyle(.plain)
             }
             .padding(.horizontal, 24).padding(.vertical, 12)
+
+            // Section Tab Strip
+            HStack(spacing: 6) {
+                ForEach(DashboardTab.allCases) { tab in
+                    Button {
+                        selectedTab = tab
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: tab.icon)
+                                .font(.system(size: 11))
+                            Text(tab.rawValue)
+                                .font(.system(size: 11.5, weight: selectedTab == tab ? .bold : .medium))
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 7)
+                        .background(
+                            RoundedRectangle(cornerRadius: 8)
+                                .fill(selectedTab == tab ? Color.white.opacity(0.12) : Color.clear)
+                        )
+                        .foregroundStyle(selectedTab == tab ? .white : .white.opacity(0.55))
+                    }
+                    .buttonStyle(.plain)
+                }
+                Spacer()
+            }
+            .padding(.horizontal, 24)
+            .padding(.bottom, 10)
+
             Divider()
+
             ScrollView {
                 content
                     .padding(24)
@@ -50,20 +131,38 @@ struct DashboardView: View {
         .frame(minWidth: 860, minHeight: 640)
         .background(AppTheme.window.ignoresSafeArea())
         .preferredColorScheme(.dark)
+        .sheet(isPresented: $appState.showSpotlightSearch) {
+            SpotlightPaletteView()
+        }
+        .sheet(isPresented: $appState.showStandupModal) {
+            StandupModalView(report: appState.dailyStandup)
+        }
+        .sheet(isPresented: $appState.showTransactionEditor) {
+            if let r = appState.selectedReceiptForEditing {
+                TransactionEditorModalView(receipt: r)
+            }
+        }
     }
 
     @ViewBuilder
     private var content: some View {
-        switch range {
-        case .today:
-            let s = appState.stats
-            let todayEvents = DataStore.shared.events(forDay: SyncFormat.dayString())
-            VStack(spacing: 22) {
+        let s = appState.stats
+        let todayEvents = DataStore.shared.events(forDay: SyncFormat.dayString())
+
+        switch selectedTab {
+        case .overview:
+            VStack(spacing: 20) {
                 if let app = appHistory.selectedApp { appFilterBanner(app, stats: s) }
                 hero(s)
-                meetingIndicator(todayEvents, stats: s)
+                CognitiveScoreCardView(snapshot: appState.cognitiveSnapshot)
                 metricGrid(s)
-                dayStorySection()
+                meetingIndicator(todayEvents, stats: s)
+                contextSection(s, events: todayEvents)
+                if !appState.todayStory.chapters.isEmpty { dayStorySection() }
+            }
+
+        case .attention:
+            VStack(spacing: 20) {
                 TimeMachineScrubberView(frames: appState.timeMachineFrames)
                 if !s.activity.isEmpty { activityChart(s) }
                 if !s.categories.isEmpty { categoriesCard(s) }
@@ -72,22 +171,116 @@ struct DashboardView: View {
                 } else if !s.apps.isEmpty {
                     appsCard(s)
                 }
-                contextSection(s, events: todayEvents)
                 workspaceSection()
-                FinancialRunwayView(forecast: appState.financialForecast)
-                SubscriptionRenewalCalendarView()
+                sitesCard(s)
+            }
+
+        case .financial:
+            financialDashboardSection()
+
+        case .storage:
+            VStack(spacing: 20) {
                 StorageHelperView()
+            }
+
+        case .power:
+            VStack(spacing: 20) {
                 BatteryRunwayCardView()
                 AudioFlowInsightView()
-                if !appState.spendToday.receipts.isEmpty { spendSection(appState.spendToday) }
-                insightsCard(s)
                 hardwareRow(s)
             }
-        case .week:
-            periodSection(daysBack: 7, title: "LAST 7 DAYS")
-        case .month:
-            periodSection(daysBack: 30, title: "LAST 30 DAYS")
+
+        case .health:
+            AppleHealthDashboardView(snap: appState.healthSnapshot)
+
+        case .trends:
+            VStack(spacing: 20) {
+                crossDeviceCard()
+
+                HStack {
+                    Text("HISTORICAL ACTIVITY & TRENDS")
+                        .font(.system(size: 11, weight: .bold)).tracking(1.2)
+                        .foregroundStyle(.white.opacity(0.5))
+                    Spacer()
+                    Picker("", selection: $range) {
+                        ForEach(DashRange.allCases) { Text($0.rawValue).tag($0) }
+                    }
+                    .pickerStyle(.segmented)
+                    .frame(width: 220)
+                }
+
+                if range == .week {
+                    periodSection(daysBack: 7, title: "LAST 7 DAYS")
+                } else if range == .month {
+                    periodSection(daysBack: 30, title: "LAST 30 DAYS")
+                } else {
+                    insightsCard(s)
+                }
+            }
         }
+    }
+
+    private func crossDeviceCard() -> some View {
+        let rep = appState.crossDeviceReport
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                HStack(spacing: 6) {
+                    Image(systemName: "iphone.and.arrow.forward")
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundStyle(Color(hex: "#38BDF8"))
+                    Text("CROSS-DEVICE APPLE ECOSYSTEM & SCREEN TIME")
+                        .font(.system(size: 10.5, weight: .bold, design: .rounded))
+                        .foregroundStyle(.white.opacity(0.75))
+                }
+                Spacer()
+                Text("Synced via iCloud & Biome")
+                    .font(.system(size: 9.5))
+                    .foregroundStyle(.white.opacity(0.4))
+            }
+
+            HStack(spacing: 16) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("\(rep.mobileFocusMinutes)m")
+                        .font(.system(size: 20, weight: .bold, design: .rounded))
+                        .foregroundStyle(.white)
+                    Text("iPhone Active Time")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.white.opacity(0.5))
+                }
+
+                Divider().frame(height: 28).opacity(0.3)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("\(rep.appleMusicMobileMinutes)m")
+                        .font(.system(size: 20, weight: .bold, design: .rounded))
+                        .foregroundStyle(Color(hex: "#F43F5E"))
+                    Text("Apple Music Mobile")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.white.opacity(0.5))
+                }
+
+                Divider().frame(height: 28).opacity(0.3)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("\(rep.desktopFocusMinutes)m")
+                        .font(.system(size: 20, weight: .bold, design: .rounded))
+                        .foregroundStyle(AppTheme.accent)
+                    Text("Mac Desktop Focus")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.white.opacity(0.5))
+                }
+            }
+
+            Text(rep.summary)
+                .font(.system(size: 11))
+                .foregroundStyle(.white.opacity(0.75))
+        }
+        .padding(14)
+        .background(
+            RoundedRectangle(cornerRadius: 14)
+                .fill(Color(hex: "#161822"))
+                .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.white.opacity(0.08), lineWidth: 1))
+        )
     }
 
     // MARK: - Hero
@@ -558,10 +751,25 @@ extension DashboardView {
             }
             if !agg.categories.isEmpty { categoriesCard(agg) }
             if !agg.apps.isEmpty { appsCard(agg) }
-            contextSection(agg, events: periodEvents)
             let periodSpend = SpendStats.calculate(events: periodEvents)
-            if !periodSpend.receipts.isEmpty { spendSection(periodSpend) }
-            insightsCard(agg)
+            if !periodSpend.receipts.isEmpty {
+                VStack(alignment: .leading, spacing: 10) {
+                    sectionTitle("PERIOD SPENDING", "\(periodSpend.receipts.count) logged purchases")
+                    HStack(spacing: 16) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(SpendFormat.amount(periodSpend.total))
+                                .font(.system(size: 20, weight: .bold, design: .rounded)).foregroundStyle(.white)
+                            Text("total spent").font(.system(size: 9.5)).foregroundStyle(.white.opacity(0.45))
+                        }
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(SpendFormat.amount(periodSpend.deductibleTotal))
+                                .font(.system(size: 20, weight: .bold, design: .rounded)).foregroundStyle(AppTheme.batteryGreen)
+                            Text("tax deductible").font(.system(size: 9.5)).foregroundStyle(.white.opacity(0.45))
+                        }
+                    }
+                }
+                .cardStyle()
+            }
         }
     }
 
@@ -600,154 +808,464 @@ extension DashboardView {
         .cardStyle()
     }
 
-    func spendSection(_ spend: SpendSummary) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack {
-                sectionTitle("FINANCE & SPENDING", SpendStats.monthTitle(for: appState.selectedSpendMonthOffset))
-                Spacer()
-                HStack(spacing: 8) {
-                    Button {
-                        appState.selectedSpendMonthOffset -= 1
-                    } label: {
-                        Image(systemName: "chevron.left")
-                            .font(.system(size: 10, weight: .bold))
-                            .foregroundStyle(.white.opacity(0.8))
-                            .padding(5)
-                            .background(Circle().fill(AppTheme.window))
-                    }
-                    .buttonStyle(.plain)
-
-                    Button {
-                        if appState.selectedSpendMonthOffset < 0 {
-                            appState.selectedSpendMonthOffset += 1
-                        }
-                    } label: {
-                        Image(systemName: "chevron.right")
-                            .font(.system(size: 10, weight: .bold))
-                            .foregroundStyle(appState.selectedSpendMonthOffset < 0 ? .white.opacity(0.8) : .white.opacity(0.2))
-                            .padding(5)
-                            .background(Circle().fill(AppTheme.window))
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(appState.selectedSpendMonthOffset >= 0)
-                }
+    private func financialDashboardSection() -> some View {
+        let spend = appState.spendMonth
+        let query = appState.spendSearchQuery.trimmingCharacters(in: .whitespaces).lowercased()
+        let filteredReceipts = spend.receipts.filter { r in
+            if !query.isEmpty {
+                let matches = r.merchant.lowercased().contains(query) ||
+                              r.category.label.lowercased().contains(query) ||
+                              (r.cardLast4?.contains(query) ?? false) ||
+                              (r.notes?.lowercased().contains(query) ?? false)
+                if !matches { return false }
             }
-
-            HStack(spacing: 20) {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(SpendFormat.amount(spend.total))
-                        .font(.system(size: 24, weight: .bold, design: .rounded)).foregroundStyle(.white)
-                    Text("total spent").font(.system(size: 10)).foregroundStyle(.white.opacity(0.45))
+            switch appState.selectedSpendFilter {
+            case .all:
+                return true
+            case .deductibleOnly:
+                return r.category.businessDeductible
+            case .card(let card):
+                if card == "Direct" || card == "Unknown" {
+                    return r.cardLast4 == nil || r.cardLast4 == "Unknown"
                 }
-                Button {
-                    withAnimation(.spring(duration: 0.2)) {
-                        appState.selectedSpendFilter = (appState.selectedSpendFilter == .deductibleOnly ? .all : .deductibleOnly)
+                return r.cardLast4 == card
+            }
+        }
+
+        return VStack(spacing: 20) {
+            // 1. Executive Month Navigation & KPI Command Bar
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(alignment: .center) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        HStack(spacing: 8) {
+                            Text("FINANCIAL COMMAND CENTER")
+                                .font(.system(size: 11, weight: .bold)).tracking(1.4)
+                                .foregroundStyle(AppTheme.accent)
+                            Text("·")
+                                .foregroundStyle(.white.opacity(0.3))
+                            Text(SpendStats.monthTitle(for: appState.selectedSpendMonthOffset).uppercased())
+                                .font(.system(size: 11, weight: .bold, design: .rounded))
+                                .foregroundStyle(.white)
+                        }
+                        Text("Real-time spending velocity, IRS Schedule-C write-offs, and 2026 transaction ledger")
+                            .font(.system(size: 10.5))
+                            .foregroundStyle(.white.opacity(0.5))
                     }
-                } label: {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(SpendFormat.amount(spend.deductibleTotal))
-                            .font(.system(size: 18, weight: .bold, design: .rounded)).foregroundStyle(AppTheme.batteryGreen)
-                        HStack(spacing: 4) {
-                            if appState.selectedSpendFilter == .deductibleOnly {
-                                Image(systemName: "checkmark.circle.fill").font(.system(size: 9)).foregroundStyle(AppTheme.batteryGreen)
+                    Spacer()
+                    HStack(spacing: 8) {
+                        Button {
+                            appState.selectedSpendMonthOffset -= 1
+                        } label: {
+                            Image(systemName: "chevron.left")
+                                .font(.system(size: 11, weight: .bold))
+                                .foregroundStyle(.white.opacity(0.9))
+                                .padding(7)
+                                .background(Circle().fill(AppTheme.window))
+                        }
+                        .buttonStyle(.plain)
+
+                        if appState.selectedSpendMonthOffset != 0 {
+                            Button("Current Month") {
+                                appState.selectedSpendMonthOffset = 0
                             }
-                            Text(appState.selectedSpendFilter == .deductibleOnly ? "filtered: deductible" : "tax deductible")
-                                .font(.system(size: 10, weight: appState.selectedSpendFilter == .deductibleOnly ? .bold : .regular))
-                                .foregroundStyle(appState.selectedSpendFilter == .deductibleOnly ? AppTheme.batteryGreen : .white.opacity(0.45))
+                            .buttonStyle(.plain)
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(AppTheme.accent)
+                            .padding(.horizontal, 8).padding(.vertical, 4)
+                            .background(Capsule().fill(AppTheme.accent.opacity(0.15)))
+                        }
+
+                        Button("Scan 2026 Mail") {
+                            appState.rescanMailReceipts()
+                        }
+                        .buttonStyle(.plain)
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(Color(hex: "#60A5FA"))
+                        .padding(.horizontal, 8).padding(.vertical, 4)
+                        .background(Capsule().fill(Color(hex: "#60A5FA").opacity(0.15)))
+
+                        Button {
+                            if appState.selectedSpendMonthOffset < 0 {
+                                appState.selectedSpendMonthOffset += 1
+                            }
+                        } label: {
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 11, weight: .bold))
+                                .foregroundStyle(appState.selectedSpendMonthOffset < 0 ? .white.opacity(0.9) : .white.opacity(0.2))
+                                .padding(7)
+                                .background(Circle().fill(AppTheme.window))
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(appState.selectedSpendMonthOffset >= 0)
+                    }
+                }
+
+                // 4-Column Executive Hero KPI Grid
+                HStack(spacing: 12) {
+                    // KPI 1: Month Spend
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(SpendFormat.amount(spend.total))
+                            .font(.system(size: 24, weight: .bold, design: .rounded))
+                            .foregroundStyle(.white)
+                        HStack(spacing: 4) {
+                            Text("Month Spend")
+                                .font(.system(size: 10.5, weight: .medium))
+                                .foregroundStyle(.white.opacity(0.5))
+                            Text("(\(spend.receipts.count) receipts)")
+                                .font(.system(size: 9.5))
+                                .foregroundStyle(.white.opacity(0.35))
                         }
                     }
-                    .padding(6)
-                    .background(RoundedRectangle(cornerRadius: 8).fill(appState.selectedSpendFilter == .deductibleOnly ? AppTheme.batteryGreen.opacity(0.15) : .clear))
-                }
-                .buttonStyle(.plain)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(12)
+                    .background(RoundedRectangle(cornerRadius: 10).fill(AppTheme.window))
 
+                    // KPI 2: Tax Deductible (Interactive)
+                    Button {
+                        withAnimation(.spring(duration: 0.2)) {
+                            appState.selectedSpendFilter = (appState.selectedSpendFilter == .deductibleOnly ? .all : .deductibleOnly)
+                        }
+                    } label: {
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack {
+                                Text(SpendFormat.amount(spend.deductibleTotal))
+                                    .font(.system(size: 24, weight: .bold, design: .rounded))
+                                    .foregroundStyle(AppTheme.batteryGreen)
+                                Spacer()
+                                if appState.selectedSpendFilter == .deductibleOnly {
+                                    Image(systemName: "checkmark.circle.fill")
+                                        .font(.system(size: 12))
+                                        .foregroundStyle(AppTheme.batteryGreen)
+                                }
+                            }
+                            Text(appState.selectedSpendFilter == .deductibleOnly ? "Filtered: Deductible" : "Tax Deductible")
+                                .font(.system(size: 10.5, weight: .medium))
+                                .foregroundStyle(appState.selectedSpendFilter == .deductibleOnly ? AppTheme.batteryGreen : .white.opacity(0.5))
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(12)
+                        .background(RoundedRectangle(cornerRadius: 10).fill(appState.selectedSpendFilter == .deductibleOnly ? AppTheme.batteryGreen.opacity(0.18) : AppTheme.window))
+                    }
+                    .buttonStyle(.plain)
+
+                    // KPI 3: 2026 Year-to-Date Business Spend
+                    let ytdTotal = appState.taxReport2026.grossBusinessSpend
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(SpendFormat.amount(ytdTotal))
+                            .font(.system(size: 24, weight: .bold, design: .rounded))
+                            .foregroundStyle(Color(hex: "#38BDF8"))
+                        Text("2026 Business Spend")
+                            .font(.system(size: 10.5, weight: .medium))
+                            .foregroundStyle(.white.opacity(0.5))
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(12)
+                    .background(RoundedRectangle(cornerRadius: 10).fill(AppTheme.window))
+
+                    // KPI 4: 28% Tax Savings Shield
+                    let taxShieldSavings = NSDecimalNumber(decimal: appState.taxReport2026.totalDeductibleAmount).doubleValue * 0.28
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("$\(String(format: "%.2f", taxShieldSavings))")
+                            .font(.system(size: 24, weight: .bold, design: .rounded))
+                            .foregroundStyle(Color(hex: "#10B981"))
+                        Text("28% Tax Savings Shield")
+                            .font(.system(size: 10.5, weight: .medium))
+                            .foregroundStyle(.white.opacity(0.5))
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(12)
+                    .background(RoundedRectangle(cornerRadius: 10).fill(AppTheme.window))
+                }
+
+                // Interactive Spending Pacing Gauge & Chart Trigger
                 if let pacing = spend.pacing {
                     Button {
                         withAnimation(.spring(duration: 0.25)) {
                             appState.showBurnRateGraph.toggle()
                         }
                     } label: {
-                        VStack(alignment: .leading, spacing: 3) {
-                            HStack(spacing: 4) {
-                                Text(pacing.pacingStatus.rawValue)
-                                    .font(.system(size: 14, weight: .bold, design: .rounded))
-                                    .foregroundStyle(Color(hex: pacing.pacingStatus.colorHex))
-                                Image(systemName: appState.showBurnRateGraph ? "chevron.up" : "chart.line.uptrend.xyaxis")
-                                    .font(.system(size: 9)).foregroundStyle(.white.opacity(0.5))
+                        HStack(spacing: 12) {
+                            Circle().fill(Color(hex: pacing.pacingStatus.colorHex)).frame(width: 10, height: 10)
+                            VStack(alignment: .leading, spacing: 2) {
+                                HStack {
+                                    Text("\(pacing.pacingStatus.rawValue) Burn Rate Velocity")
+                                        .font(.system(size: 12, weight: .bold))
+                                        .foregroundStyle(.white)
+                                    Spacer()
+                                    Label(appState.showBurnRateGraph ? "Hide Daily Trajectory" : "Show Daily Trajectory Chart", systemImage: appState.showBurnRateGraph ? "chevron.up" : "chart.line.uptrend.xyaxis")
+                                        .font(.system(size: 10.5, weight: .semibold))
+                                        .foregroundStyle(Color(hex: pacing.pacingStatus.colorHex))
+                                }
+                                Text("Day \(pacing.daysElapsed) of \(pacing.totalDaysInMonth) · \(SpendFormat.amount(pacing.dailyBurnRate))/day · Projected Month-End: \(SpendFormat.amount(pacing.projectedMonthEndTotal)) (Baseline: $350.39/mo)")
+                                    .font(.system(size: 10))
+                                    .foregroundStyle(.white.opacity(0.5))
                             }
-                            Text("Day \(pacing.daysElapsed)/\(pacing.totalDaysInMonth) · \(SpendFormat.amount(pacing.dailyBurnRate))/day").font(.system(size: 10)).foregroundStyle(.white.opacity(0.45))
                         }
-                        .padding(6)
-                        .background(RoundedRectangle(cornerRadius: 8).fill(Color(hex: pacing.pacingStatus.colorHex).opacity(0.12)))
+                        .padding(12)
+                        .background(RoundedRectangle(cornerRadius: 10).fill(Color(hex: pacing.pacingStatus.colorHex).opacity(0.12)))
                     }
                     .buttonStyle(.plain)
-                }
-                Spacer()
-                if !appState.subscriptions.activeSubscriptions.isEmpty {
-                    VStack(alignment: .trailing, spacing: 3) {
-                        Text("\(SpendFormat.amount(appState.subscriptions.monthlyBurnRate))/mo")
-                            .font(.system(size: 14, weight: .bold, design: .rounded)).foregroundStyle(.white)
-                        Text("\(appState.subscriptions.activeSubscriptions.count) Subscriptions (\(SpendFormat.amount(appState.subscriptions.annualBurnRate))/yr)").font(.system(size: 10)).foregroundStyle(.white.opacity(0.45))
+
+                    if appState.showBurnRateGraph {
+                        DailySpendingChartView(trajectory: spend.dailyTrajectory, baselineMonthly: SpendingPacing.baseline2026)
                     }
                 }
             }
+            .cardStyle()
 
-            if appState.showBurnRateGraph {
-                DailySpendingChartView(trajectory: spend.dailyTrajectory, baselineMonthly: SpendingPacing.baseline2026)
+            // 2. Financial Runway & 30-Day Subscription Radar
+            HStack(alignment: .top, spacing: 16) {
+                VStack(spacing: 16) {
+                    FinancialRunwayView(forecast: appState.financialForecast)
+                }
+                .frame(maxWidth: .infinity)
+
+                VStack(spacing: 16) {
+                    SubscriptionRenewalCalendarView()
+                }
+                .frame(maxWidth: .infinity)
             }
 
-            // Cards Breakdown (Click to Filter)
-            if !spend.byCard.isEmpty {
-                HStack(spacing: 8) {
-                    ForEach(Array(spend.byCard.sorted { $0.value > $1.value }), id: \.key) { card, amt in
-                        let isSelected = (appState.selectedSpendFilter == .card(card))
-                        Button {
-                            withAnimation(.spring(duration: 0.2)) {
-                                appState.selectedSpendFilter = isSelected ? .all : .card(card)
+            // 3. Category & Card Distribution Breakdown
+            HStack(alignment: .top, spacing: 16) {
+                // Category Distribution
+                VStack(alignment: .leading, spacing: 12) {
+                    sectionTitle("SPENDING BY CATEGORY", "\(spend.byCategory.count) active expense categories")
+                    if spend.byCategory.isEmpty {
+                        Text("No categorized expenses for this month.")
+                            .font(.system(size: 11)).foregroundStyle(.white.opacity(0.4))
+                            .padding(.vertical, 8)
+                    } else {
+                        let total = max(NSDecimalNumber(decimal: spend.total).doubleValue, 0.01)
+                        VStack(spacing: 8) {
+                            ForEach(Array(spend.byCategory.sorted { $0.value > $1.value }), id: \.key) { cat, amount in
+                                let amtDbl = NSDecimalNumber(decimal: amount).doubleValue
+                                let pct = (amtDbl / total) * 100.0
+                                HStack(spacing: 8) {
+                                    Image(systemName: cat.icon)
+                                        .font(.system(size: 11))
+                                        .foregroundStyle(Color(hex: cat.colorHex))
+                                        .frame(width: 18)
+                                    Text(cat.label)
+                                        .font(.system(size: 11, weight: .medium))
+                                        .foregroundStyle(.white)
+                                    Spacer()
+                                    Text("\(String(format: "%.0f", pct))%")
+                                        .font(.system(size: 9.5, weight: .bold))
+                                        .foregroundStyle(.white.opacity(0.4))
+                                    Text(SpendFormat.amount(amount))
+                                        .font(.system(size: 11, weight: .bold, design: .rounded))
+                                        .foregroundStyle(.white.opacity(0.9))
+                                }
+                                GeometryReader { geo in
+                                    ZStack(alignment: .leading) {
+                                        RoundedRectangle(cornerRadius: 3)
+                                            .fill(Color.white.opacity(0.06))
+                                            .frame(height: 6)
+                                        RoundedRectangle(cornerRadius: 3)
+                                            .fill(Color(hex: cat.colorHex))
+                                            .frame(width: max(geo.size.width * CGFloat(pct / 100.0), 4), height: 6)
+                                    }
+                                }
+                                .frame(height: 6)
                             }
-                        } label: {
-                            HStack(spacing: 5) {
-                                Image(systemName: "creditcard.fill").font(.system(size: 8))
-                                    .foregroundStyle(isSelected ? .white : AppTheme.accent)
-                                Text(CardPortfolio.shortName(for: card)).font(.system(size: 10.5, weight: .semibold)).foregroundStyle(.white)
-                                Text(SpendFormat.amount(amt)).font(.system(size: 9.5)).foregroundStyle(isSelected ? .white.opacity(0.9) : .white.opacity(0.6))
-                            }
-                            .padding(.horizontal, 8).padding(.vertical, 4)
-                            .background(Capsule().fill(isSelected ? AppTheme.accent : AppTheme.window))
-                            .overlay(Capsule().stroke(isSelected ? .white.opacity(0.5) : .clear, lineWidth: 1))
                         }
-                        .buttonStyle(.plain)
                     }
-                    if appState.selectedSpendFilter != .all {
-                        Button("Show All") {
-                            withAnimation { appState.selectedSpendFilter = .all }
+                }
+                .cardStyle()
+                .frame(maxWidth: .infinity)
+
+                // Card Portfolio & IRS Schedule-C Tax Actions
+                VStack(alignment: .leading, spacing: 14) {
+                    sectionTitle("CARDS & PAYMENT SOURCES", "Click any card badge to filter purchases")
+                    if !spend.byCard.isEmpty {
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 8) {
+                                ForEach(Array(spend.byCard.sorted { $0.value > $1.value }), id: \.key) { card, amt in
+                                    let isSelected = (appState.selectedSpendFilter == .card(card))
+                                    Button {
+                                        withAnimation(.spring(duration: 0.2)) {
+                                            appState.selectedSpendFilter = isSelected ? .all : .card(card)
+                                        }
+                                    } label: {
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            HStack(spacing: 4) {
+                                                Image(systemName: "creditcard.fill").font(.system(size: 8))
+                                                    .foregroundStyle(isSelected ? .white : AppTheme.accent)
+                                                Text(CardPortfolio.shortName(for: card))
+                                                    .font(.system(size: 10.5, weight: .bold, design: .rounded))
+                                                    .foregroundStyle(.white)
+                                            }
+                                            Text(SpendFormat.amount(amt))
+                                                .font(.system(size: 9.5))
+                                                .foregroundStyle(isSelected ? .white.opacity(0.9) : .white.opacity(0.5))
+                                        }
+                                        .padding(.horizontal, 10).padding(.vertical, 6)
+                                        .background(RoundedRectangle(cornerRadius: 8).fill(isSelected ? AppTheme.accent : AppTheme.window))
+                                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(isSelected ? .white.opacity(0.5) : .clear, lineWidth: 1))
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
                         }
-                        .buttonStyle(.plain)
-                        .font(.system(size: 10, weight: .bold))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 8).padding(.vertical, 3)
-                        .background(Capsule().fill(Color.white.opacity(0.12)))
+                    }
+
+                    Divider().background(Color.white.opacity(0.1))
+
+                    // IRS Schedule-C Tax Write-Off Summary
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack {
+                            Text("IRS SCHEDULE-C WRITE-OFF REPORT")
+                                .font(.system(size: 10, weight: .bold)).tracking(1.2)
+                                .foregroundStyle(AppTheme.batteryGreen)
+                            Spacer()
+                            Text("\(appState.taxReport2026.lineItems.count) eligible expenses")
+                                .font(.system(size: 9.5))
+                                .foregroundStyle(.white.opacity(0.4))
+                        }
+                        Text("Includes Line 18 (Software/SaaS @ 100%), Line 22 (Supplies @ 100%), Line 24b (Meals @ 50%).")
+                            .font(.system(size: 9.5))
+                            .foregroundStyle(.white.opacity(0.5))
+                        HStack(spacing: 8) {
+                            Button { appState.exportScheduleCTaxCSV() } label: {
+                                Label("Schedule-C CSV", systemImage: "arrow.down.doc.fill")
+                                    .font(.system(size: 10, weight: .medium))
+                            }
+                            .buttonStyle(.bordered).tint(AppTheme.accent).controlSize(.small)
+
+                            Button { appState.exportCPATaxMarkdown() } label: {
+                                Label("CPA Markdown Report", systemImage: "doc.plaintext")
+                                    .font(.system(size: 10, weight: .medium))
+                            }
+                            .buttonStyle(.bordered).tint(.white.opacity(0.6)).controlSize(.small)
+                        }
+                        .padding(.top, 4)
+                    }
+                }
+                .cardStyle()
+                .frame(maxWidth: .infinity)
+            }
+
+            // 4. Full Interactive 2026 Transaction Ledger Table
+            VStack(alignment: .leading, spacing: 14) {
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        sectionTitle("TRANSACTION LEDGER", "\(filteredReceipts.count) purchases for \(SpendStats.monthTitle(for: appState.selectedSpendMonthOffset))")
                     }
                     Spacer()
-                }
-            }
+                    HStack(spacing: 8) {
+                        // Search bar
+                        HStack(spacing: 6) {
+                            Image(systemName: "magnifyingglass").font(.system(size: 10)).foregroundStyle(.white.opacity(0.4))
+                            TextField("Search merchant, card, or note…", text: $appState.spendSearchQuery)
+                                .textFieldStyle(.plain)
+                                .font(.system(size: 10.5))
+                                .frame(width: 180)
+                            if !appState.spendSearchQuery.isEmpty {
+                                Button { appState.spendSearchQuery = "" } label: {
+                                    Image(systemName: "xmark.circle.fill").font(.system(size: 10)).foregroundStyle(.white.opacity(0.4))
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                        .padding(.horizontal, 8).padding(.vertical, 5)
+                        .background(RoundedRectangle(cornerRadius: 8).fill(AppTheme.window))
 
-            if !spend.byCategory.isEmpty {
-                HStack(alignment: .bottom, spacing: 14) {
-                    let total = max(NSDecimalNumber(decimal: spend.total).doubleValue, 0.01)
-                    ForEach(Array(spend.byCategory.sorted { $0.value > $1.value }.prefix(6)), id: \.key) { cat, amount in
-                        VStack(spacing: 6) {
-                            RoundedRectangle(cornerRadius: 4)
-                                .fill(Color(hex: cat.colorHex))
-                                .frame(width: 28, height: 8 + CGFloat(NSDecimalNumber(decimal: amount).doubleValue / total) * 56)
-                            Text(cat.label).font(.system(size: 9)).foregroundStyle(.white.opacity(0.6))
+                        if appState.selectedSpendFilter != .all {
+                            Button("Show All") {
+                                withAnimation { appState.selectedSpendFilter = .all }
+                            }
+                            .buttonStyle(.plain)
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 8).padding(.vertical, 5)
+                            .background(Capsule().fill(AppTheme.accent))
                         }
                     }
-                    Spacer()
+                }
+
+                if filteredReceipts.isEmpty {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Image(systemName: "creditcard").font(.system(size: 18)).foregroundStyle(.white.opacity(0.3))
+                        Text("No purchases found for the selected filter or search query.")
+                            .font(.system(size: 12, weight: .medium)).foregroundStyle(.white.opacity(0.7))
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(16)
+                    .background(RoundedRectangle(cornerRadius: 10).fill(AppTheme.window))
+                } else {
+                    VStack(spacing: 6) {
+                        ForEach(filteredReceipts) { r in
+                            let isIncome = TransactionCustomizer.isIncome(for: r)
+                            Button {
+                                appState.selectedReceiptForEditing = r
+                                appState.showTransactionEditor = true
+                            } label: {
+                                HStack(spacing: 12) {
+                                    Image(systemName: isIncome ? "arrow.down.left.circle.fill" : r.category.icon)
+                                        .font(.system(size: 13))
+                                        .foregroundStyle(isIncome ? Color(hex: "#10B981") : Color(hex: r.category.colorHex))
+                                        .frame(width: 24, height: 24)
+                                        .background(Circle().fill((isIncome ? Color(hex: "#10B981") : Color(hex: r.category.colorHex)).opacity(0.15)))
+
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        HStack(spacing: 6) {
+                                            Text(r.merchant)
+                                                .font(.system(size: 12.5, weight: .bold))
+                                                .foregroundStyle(.white)
+
+                                            if isIncome {
+                                                Text("Paid to me")
+                                                    .font(.system(size: 8.5, weight: .bold))
+                                                    .foregroundStyle(Color(hex: "#10B981"))
+                                                    .padding(.horizontal, 5).padding(.vertical, 1.5)
+                                                    .background(Capsule().fill(Color(hex: "#10B981").opacity(0.18)))
+                                            } else if r.category.businessDeductible {
+                                                Text("Schedule-C Deductible")
+                                                    .font(.system(size: 8.5, weight: .bold))
+                                                    .foregroundStyle(AppTheme.batteryGreen)
+                                                    .padding(.horizontal, 5).padding(.vertical, 1.5)
+                                                    .background(Capsule().fill(AppTheme.batteryGreen.opacity(0.18)))
+                                            }
+                                        }
+
+                                        let cardTag = CardPortfolio.displayName(for: r.cardLast4)
+                                        let noteTag = (r.notes != nil) ? " · \(r.notes!)" : ""
+                                        Text("\(SpendFormat.shortDate(r.transactionDate)) · \(cardTag)\(noteTag)")
+                                            .font(.system(size: 10))
+                                            .foregroundStyle(.white.opacity(0.45))
+                                    }
+
+                                    Spacer()
+
+                                    VStack(alignment: .trailing, spacing: 2) {
+                                        Text("\(isIncome ? "+" : "-")\(SpendFormat.amount(r.amount, currency: r.currency))")
+                                            .font(.system(size: 13, weight: .bold, design: .rounded))
+                                            .foregroundStyle(isIncome ? Color(hex: "#10B981") : .white.opacity(0.9))
+
+                                        HStack(spacing: 3) {
+                                            Text(r.category.label)
+                                                .font(.system(size: 9))
+                                                .foregroundStyle(.white.opacity(0.4))
+                                            Image(systemName: "pencil")
+                                                .font(.system(size: 8))
+                                                .foregroundStyle(.white.opacity(0.3))
+                                        }
+                                    }
+                                }
+                                .padding(10)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 10)
+                                        .fill(isIncome ? Color(hex: "#10B981").opacity(0.08) : AppTheme.window)
+                                )
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
                 }
             }
+            .cardStyle()
         }
-        .cardStyle()
     }
 
     func hardwareRow(_ s: TodayStats) -> some View {

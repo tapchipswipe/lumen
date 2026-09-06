@@ -3,12 +3,13 @@ import SwiftUI
 // MARK: - Tabs (Vorssaint-style icon tab strip)
 
 enum MenuTab: String, CaseIterable, Identifiable {
-    case today, apps, insights, wallet, sync, settings
+    case today, apps, ai, insights, wallet, sync, settings
     var id: String { rawValue }
     var icon: String {
         switch self {
         case .today:    return "waveform.path.ecg"
         case .apps:     return "square.grid.2x2"
+        case .ai:       return "atom"
         case .insights: return "sparkles"
         case .wallet:   return "creditcard"
         case .sync:     return "icloud"
@@ -42,6 +43,7 @@ struct MenuContentView: View {
                     switch tab {
                     case .today:    todayTab
                     case .apps:     appsTab
+                    case .ai:       aiTab
                     case .insights: insightsTab
                     case .wallet:   walletTab
                     case .sync:     syncTab
@@ -68,20 +70,24 @@ struct MenuContentView: View {
         .sheet(isPresented: $appState.showSpotlightSearch) {
             SpotlightPaletteView()
         }
+        .sheet(isPresented: $appState.showStandupModal) {
+            StandupModalView(report: appState.dailyStandup)
+        }
     }
 
     // MARK: - Header (centered mark + focus ring #1)
 
     private var header: some View {
         VStack(spacing: 5) {
-            HStack {
+            HStack(spacing: 8) {
                 Spacer()
+
                 Button {
                     appState.showSpotlightSearch = true
                 } label: {
                     HStack(spacing: 4) {
-                        Image(systemName: "magnifyingglass").font(.system(size: 9.5))
-                        Text("Search Lifelog").font(.system(size: 10, weight: .semibold))
+                        Image(systemName: "sparkles").font(.system(size: 9.5))
+                        Text("Copilot Chat").font(.system(size: 10, weight: .semibold))
                         Text("⌘K").font(.system(size: 8.5, weight: .bold)).padding(.horizontal, 4).padding(.vertical, 1).background(Capsule().fill(Color.white.opacity(0.12)))
                     }
                     .padding(.horizontal, 8).padding(.vertical, 3.5)
@@ -89,6 +95,20 @@ struct MenuContentView: View {
                     .foregroundStyle(.white.opacity(0.85))
                 }
                 .buttonStyle(.plain)
+
+                Button {
+                    appState.showStandupModal = true
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "sparkles").font(.system(size: 9.5))
+                        Text("Standup").font(.system(size: 10, weight: .semibold))
+                    }
+                    .padding(.horizontal, 8).padding(.vertical, 3.5)
+                    .background(Capsule().fill(LinearGradient(colors: [Color(hex: "#FBBF24").opacity(0.2), Color(hex: "#F59E0B").opacity(0.2)], startPoint: .top, endPoint: .bottom)))
+                    .foregroundStyle(Color(hex: "#FBBF24"))
+                }
+                .buttonStyle(.plain)
+
                 Spacer()
             }
             .padding(.top, 4)
@@ -240,10 +260,13 @@ struct MenuContentView: View {
                     .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(AppTheme.card))
             }
 
+            // Cognitive Flow & Fragmentation Card
+            CognitiveScoreCardView(snapshot: appState.cognitiveSnapshot)
+
             // Apple Silicon Power & Battery Runway
             BatteryRunwayCardView()
 
-            Button { openWindow(id: SceneID.dashboard) } label: {
+            Button { DashboardWindowController.shared.show() } label: {
                 Label("Open Full Dashboard", systemImage: "chart.xyaxis.line")
                     .font(.system(size: 12, weight: .semibold))
                     .frame(maxWidth: .infinity)
@@ -281,7 +304,7 @@ struct MenuContentView: View {
                 VStack(spacing: 4) {
                     ForEach(apps) { a in
                         // Tapping an app opens its day history in the Dashboard (#3).
-                        Button { AppHistoryStore.shared.select(app: a.name); openWindow(id: SceneID.dashboard) } label: {
+                        Button { AppHistoryStore.shared.select(app: a.name); DashboardWindowController.shared.show() } label: {
                             AppBarRow(app: a, maxSeconds: apps.first?.seconds ?? 1)
                         }
                         .buttonStyle(.plain)
@@ -307,6 +330,12 @@ struct MenuContentView: View {
                 }
             }
         }
+    }
+
+    // MARK: - AI FLEET tab
+
+    private var aiTab: some View {
+        AIFleetDashboardView()
     }
 
     // MARK: - INSIGHTS tab (#4)
@@ -386,13 +415,21 @@ struct MenuContentView: View {
                     Text(SpendStats.monthTitle(for: appState.selectedSpendMonthOffset).uppercased())
                         .font(.system(size: 12, weight: .bold, design: .rounded))
                         .foregroundStyle(.white)
-                    if appState.selectedSpendMonthOffset != 0 {
-                        Button("Reset to Current Month") {
-                            appState.selectedSpendMonthOffset = 0
+                    HStack(spacing: 8) {
+                        if appState.selectedSpendMonthOffset != 0 {
+                            Button("Current Month") {
+                                appState.selectedSpendMonthOffset = 0
+                            }
+                            .buttonStyle(.plain)
+                            .font(.system(size: 9))
+                            .foregroundStyle(AppTheme.accent)
+                        }
+                        Button("Scan 2026 Mail") {
+                            appState.rescanMailReceipts()
                         }
                         .buttonStyle(.plain)
-                        .font(.system(size: 9))
-                        .foregroundStyle(AppTheme.accent)
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundStyle(Color(hex: "#60A5FA"))
                     }
                 }
 
@@ -627,33 +664,66 @@ struct MenuContentView: View {
                 .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(AppTheme.card))
             } else {
                 // Transaction list
-                sectionLabel("PURCHASES (\(filteredReceipts.count))")
+                sectionLabel("PURCHASES · CLICK TO CUSTOMIZE (\(filteredReceipts.count))")
                 VStack(spacing: 6) {
-                    ForEach(Array(filteredReceipts.prefix(15))) { r in
-                        HStack(spacing: 8) {
-                            Image(systemName: r.category.icon).font(.system(size: 10)).foregroundStyle(Color(hex: r.category.colorHex))
-                            VStack(alignment: .leading, spacing: 1) {
-                                HStack(spacing: 4) {
-                                    Text(r.merchant).font(.system(size: 11.5, weight: .medium)).foregroundStyle(.white).lineLimit(1)
-                                    if r.category.businessDeductible {
-                                        Text("Deductible")
-                                            .font(.system(size: 8, weight: .bold))
-                                            .foregroundStyle(AppTheme.batteryGreen)
-                                            .padding(.horizontal, 4).padding(.vertical, 1)
-                                            .background(Capsule().fill(AppTheme.batteryGreen.opacity(0.18)))
+                    ForEach(Array(filteredReceipts.prefix(20))) { r in
+                        let isIncome = TransactionCustomizer.isIncome(for: r)
+                        Button {
+                            appState.selectedReceiptForEditing = r
+                            appState.showTransactionEditor = true
+                        } label: {
+                            HStack(spacing: 8) {
+                                Image(systemName: isIncome ? "arrow.down.left.circle.fill" : r.category.icon)
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(isIncome ? Color(hex: "#10B981") : Color(hex: r.category.colorHex))
+
+                                VStack(alignment: .leading, spacing: 1) {
+                                    HStack(spacing: 4) {
+                                        Text(r.merchant)
+                                            .font(.system(size: 11.5, weight: .semibold))
+                                            .foregroundStyle(.white)
+                                            .lineLimit(1)
+
+                                        if isIncome {
+                                            Text("Paid to me")
+                                                .font(.system(size: 8, weight: .bold))
+                                                .foregroundStyle(Color(hex: "#10B981"))
+                                                .padding(.horizontal, 4).padding(.vertical, 1)
+                                                .background(Capsule().fill(Color(hex: "#10B981").opacity(0.18)))
+                                        } else if r.category.businessDeductible {
+                                            Text("Deductible")
+                                                .font(.system(size: 8, weight: .bold))
+                                                .foregroundStyle(AppTheme.batteryGreen)
+                                                .padding(.horizontal, 4).padding(.vertical, 1)
+                                                .background(Capsule().fill(AppTheme.batteryGreen.opacity(0.18)))
+                                        }
                                     }
+
+                                    let cardTag = CardPortfolio.displayName(for: r.cardLast4)
+                                    let noteTag = (r.notes != nil) ? " · \(r.notes!)" : ""
+                                    Text("\(SpendFormat.shortDate(r.transactionDate)) · \(cardTag)\(noteTag)")
+                                        .font(.system(size: 9)).foregroundStyle(.white.opacity(0.45)).lineLimit(1)
                                 }
-                                let cardTag = CardPortfolio.displayName(for: r.cardLast4)
-                                let noteTag = (r.notes != nil) ? " · \(r.notes!)" : ""
-                                Text("\(SpendFormat.shortDate(r.transactionDate)) · \(cardTag)\(noteTag)")
-                                    .font(.system(size: 9)).foregroundStyle(.white.opacity(0.4)).lineLimit(1)
+
+                                Spacer()
+
+                                VStack(alignment: .trailing, spacing: 1) {
+                                    Text("\(isIncome ? "+" : "-")\(SpendFormat.amount(r.amount, currency: r.currency))")
+                                        .font(.system(size: 11.5, weight: .bold, design: .rounded))
+                                        .foregroundStyle(isIncome ? Color(hex: "#10B981") : .white.opacity(0.9))
+
+                                    Image(systemName: "pencil")
+                                        .font(.system(size: 8))
+                                        .foregroundStyle(.white.opacity(0.3))
+                                }
                             }
-                            Spacer()
-                            Text(SpendFormat.amount(r.amount, currency: r.currency))
-                                .font(.system(size: 11.5, design: .rounded)).foregroundStyle(.white.opacity(0.85))
+                            .padding(8)
+                            .background(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .fill(isIncome ? Color(hex: "#10B981").opacity(0.08) : Color.white.opacity(0.04))
+                            )
                         }
-                        .padding(8)
-                        .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.04)))
+                        .buttonStyle(.plain)
                     }
                 }
                 .padding(11)
@@ -697,6 +767,11 @@ struct MenuContentView: View {
             .buttonStyle(.borderedProminent).tint(AppTheme.accent).controlSize(.regular)
         }
         .sheet(isPresented: $showAddReceipt) { QuickAddReceiptView() }
+        .sheet(isPresented: $appState.showTransactionEditor) {
+            if let r = appState.selectedReceiptForEditing {
+                TransactionEditorModalView(receipt: r)
+            }
+        }
     }
 
     // MARK: - SYNC tab
@@ -795,7 +870,6 @@ struct MenuContentView: View {
                     set: { UserDefaults.standard.set($0, forKey: "macsync.mailSenderNames") }
                 ))
                 .toggleStyle(.switch).controlSize(.mini).font(.system(size: 12))
-                    .toggleStyle(.switch).controlSize(.mini).font(.system(size: 12))
                 Toggle("Launch at Login", isOn: Binding(
                     get: { appState.launchAtLogin },
                     set: { appState.toggleLaunchAtLogin($0) }
@@ -871,7 +945,7 @@ struct MenuContentView: View {
 
     private var footer: some View {
         HStack(spacing: 8) {
-            Button { openWindow(id: SceneID.dashboard) } label: {
+            Button { DashboardWindowController.shared.show() } label: {
                 Label("Dashboard", systemImage: "macwindow")
                     .font(.system(size: 11.5, weight: .medium))
                     .frame(maxWidth: .infinity)

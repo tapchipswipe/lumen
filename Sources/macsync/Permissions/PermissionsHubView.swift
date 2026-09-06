@@ -62,10 +62,10 @@ public struct PermissionsHubView: View {
                     action: { permissions.openLocationSettings() }
                 )
 
-                // 5. Full Disk Access (Storage & Deep Clean)
+                // 5. Full Disk Access (Storage & Screen Time Sync)
                 permissionCard(
                     title: "Full Disk Access",
-                    detail: "Enables zero-footprint storage optimization & protected cache purging",
+                    detail: "Enables zero-footprint storage sweeps & cross-device iPhone Screen Time sync",
                     icon: "internaldrive.fill",
                     isGranted: permissions.hasFullDiskAccess,
                     action: { permissions.openFullDiskAccessSettings() }

@@ -32,11 +32,54 @@ public enum DeveloperProjectTrimmer {
             "\(home)/Projects",
             "\(home)/Documents/Projects",
             "\(home)/repos",
-            "\(home)/welift_sandbox"
+            "\(home)/welift_sandbox",
+            "\(home)/Developer",
+            "\(home)/Code",
+            "\(home)/workspace",
+            "\(home)/Desktop",
+            "\(home)/src"
         ]
 
         var results: [DeveloperProjectCandidate] = []
         let fm = FileManager.default
+
+        let targets = [
+            ("node_modules", "Node.js Dependencies"),
+            (".venv", "Python Virtualenv"),
+            ("venv", "Python Virtualenv"),
+            ("target", "Rust Build Artifacts"),
+            (".build", "Swift Build Cache"),
+            (".turbo", "Turborepo Cache"),
+            (".next", "Next.js Build")
+        ]
+
+        // Also check top-level home directories that are projects (like ~/macsync)
+        if let homeEntries = try? fm.contentsOfDirectory(atPath: home) {
+            for entry in homeEntries {
+                if entry.hasPrefix(".") || entry == "Library" || entry == "Applications" || entry == "System" { continue }
+                let p = "\(home)/\(entry)"
+                var isDir: ObjCBool = false
+                if fm.fileExists(atPath: p, isDirectory: &isDir), isDir.boolValue {
+                    if fm.fileExists(atPath: "\(p)/.git") || fm.fileExists(atPath: "\(p)/Package.swift") || fm.fileExists(atPath: "\(p)/package.json") {
+                        for (folderName, typeLabel) in targets {
+                            let bloatDir = "\(p)/\(folderName)"
+                            if fm.fileExists(atPath: bloatDir) {
+                                let size = iCloudStorageOptimizer.getDirectorySize(URL(fileURLWithPath: bloatDir))
+                                if size > 5_000_000 {
+                                    results.append(DeveloperProjectCandidate(
+                                        projectName: entry,
+                                        projectPath: p,
+                                        bloatPath: bloatDir,
+                                        bloatType: typeLabel,
+                                        sizeBytes: size
+                                    ))
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
 
         for root in searchRoots {
             guard fm.fileExists(atPath: root) else { continue }
@@ -48,17 +91,6 @@ public enum DeveloperProjectTrimmer {
 
                 var isDir: ObjCBool = false
                 guard fm.fileExists(atPath: projPath, isDirectory: &isDir), isDir.boolValue else { continue }
-
-                // Check common bloat folders
-                let targets = [
-                    ("node_modules", "Node.js Dependencies"),
-                    (".venv", "Python Virtualenv"),
-                    ("venv", "Python Virtualenv"),
-                    ("target", "Rust Build Artifacts"),
-                    (".build", "Swift Build Cache"),
-                    (".turbo", "Turborepo Cache"),
-                    (".next", "Next.js Build")
-                ]
 
                 for (folderName, typeLabel) in targets {
                     let bloatDir = "\(projPath)/\(folderName)"

@@ -421,15 +421,12 @@ public struct StorageHelperView: View {
 
     private func runMasterSweepAction() {
         statusMessage = "Executing 1-Click All-in-One Cloud Turbo Sweep…"
-        DispatchQueue.global(qos: .userInitiated).async {
-            DispatchQueue.main.async {
-                let freed = self.appState.runMasterTurboSweep()
-                let freedFormatted = ByteCountFormatter.string(fromByteCount: freed, countStyle: .file)
-                self.statusMessage = "✓ Cloud Turbo Sweep complete: Reclaimed \(freedFormatted)!"
-                self.refreshAllTools()
-                DispatchQueue.main.asyncAfter(deadline: .now() + 5.0) {
-                    self.statusMessage = nil
-                }
+        appState.runMasterTurboSweep { freed in
+            let freedFormatted = ByteCountFormatter.string(fromByteCount: freed, countStyle: .file)
+            self.statusMessage = "✓ Cloud Turbo Sweep complete: Reclaimed \(freedFormatted)!"
+            self.refreshAllTools()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 5.0) {
+                self.statusMessage = nil
             }
         }
     }

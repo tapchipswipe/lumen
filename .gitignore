@@ -19,3 +19,4 @@ xcuserdata/
 # local build artifacts
 build-log.txt
 build.pid
+mobile/build/

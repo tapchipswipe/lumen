@@ -18,16 +18,18 @@ final class AudioCollector {
     }
 
     func poll() {
-        // Query system default audio output route
-        let (deviceName, isAirPods, isHeadphones) = getAudioOutputDetails()
-        let payload = AudioRoutePayload(
-            observedAt: Date(),
-            outputDeviceName: deviceName,
-            isAirPods: isAirPods,
-            isHeadphones: isHeadphones,
-            volume: 0.5
-        )
-        DataStore.shared.append(TrackerEvent(ts: Date(), kind: .audioRoute, payload: .audioRoute(payload)))
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            guard let self = self else { return }
+            let (deviceName, isAirPods, isHeadphones) = self.getAudioOutputDetails()
+            let payload = AudioRoutePayload(
+                observedAt: Date(),
+                outputDeviceName: deviceName,
+                isAirPods: isAirPods,
+                isHeadphones: isHeadphones,
+                volume: 0.5
+            )
+            DataStore.shared.append(TrackerEvent(ts: Date(), kind: .audioRoute, payload: .audioRoute(payload)))
+        }
     }
 
     private func getAudioOutputDetails() -> (name: String, isAirPods: Bool, isHeadphones: Bool) {
