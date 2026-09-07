@@ -40,7 +40,7 @@ public struct CrossDeviceScreenTimeReport: Codable {
 public final class CrossDeviceScreenTimeCollector {
     public static let shared = CrossDeviceScreenTimeCollector()
 
-    private let queue = DispatchQueue(label: "com.macsync.screentime", qos: .utility)
+    private let queue = DispatchQueue(label: "com.lumen.screentime", qos: .utility)
     private var timer: Timer?
 
     public func start() {

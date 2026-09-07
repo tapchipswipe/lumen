@@ -77,3 +77,30 @@ public final class HealthKitCollector {
         healthStore.execute(stepQuery)
     }
 }
+
+public struct WatchFatigueDispatcherWorker {
+    public static func evaluateAndDispatch(hrvSamples: [Double], focusMinutes: Double) -> Bool {
+        guard focusMinutes >= 90.0, hrvSamples.count >= 3 else { return false }
+        let baseline = hrvSamples.prefix(2).reduce(0.0, +) / Double(min(2, hrvSamples.count))
+        let current = hrvSamples.suffix(2).reduce(0.0, +) / Double(min(2, hrvSamples.count))
+        
+        let drop = (baseline - current) / max(1.0, baseline)
+        if drop >= 0.15 {
+            // Dispatched haptic cue event
+            MobileDataStore.shared.append(MobileTrackerEvent(
+                kind: .motionActivity,
+                payload: .motionActivity(MotionActivityPayload(
+                    observedAt: Date(),
+                    stationary: true,
+                    walking: false,
+                    running: false,
+                    automotive: false,
+                    cycling: false,
+                    confidence: "high"
+                ))
+            ))
+            return true
+        }
+        return false
+    }
+}

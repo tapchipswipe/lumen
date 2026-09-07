@@ -8,7 +8,7 @@ final class AppWindowTracker {
     private let store = DataStore.shared
     private var workspaceObserver: NSObjectProtocol?
     private var pollTimer: DispatchSourceTimer?
-    private let queue = DispatchQueue(label: "com.macsync.appwindow", qos: .utility)
+    private let queue = DispatchQueue(label: "com.lumen.appwindow", qos: .utility)
 
     private var currentApp: NSRunningApplication?
     private var appFocusStart: Date?

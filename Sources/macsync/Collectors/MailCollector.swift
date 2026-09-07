@@ -3,17 +3,17 @@ import Foundation
 
 /// Queries Mail.app statistics via AppleScript.
 /// Counts ONLY (unread / received today / sent today) by default; top-sender
-/// NAMES are logged only when `macsync.mailSenderNames` is enabled.
+/// NAMES are logged only when `lumen.mailSenderNames` is enabled.
 /// Reuses the existing Automation (Apple Events) consent like browsers.
 final class MailCollector {
     private let store = DataStore.shared
-    private let queue = DispatchQueue(label: "com.macsync.mail", qos: .utility)
+    private let queue = DispatchQueue(label: "com.lumen.mail", qos: .utility)
     private var timer: DispatchSourceTimer?
 
     private let pollInterval: TimeInterval = 30 * 60   // every 30 minutes
 
     static var shouldLogSenders: Bool {
-        UserDefaults.standard.bool(forKey: "macsync.mailSenderNames")
+        UserDefaults.standard.bool(forKey: "lumen.mailSenderNames")
     }
 
     func start() {

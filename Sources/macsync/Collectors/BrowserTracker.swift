@@ -6,7 +6,7 @@ import Foundation
 /// NSAppleEventsUsageDescription in Info.plist.
 final class BrowserTracker {
     private let store = DataStore.shared
-    private let queue = DispatchQueue(label: "com.macsync.browser", qos: .utility)
+    private let queue = DispatchQueue(label: "com.lumen.browser", qos: .utility)
     private var timer: DispatchSourceTimer?
 
     /// Only query the browser if it is currently frontmost — avoids launching

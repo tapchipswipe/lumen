@@ -7,7 +7,7 @@ final class IdleTracker {
     static let idleThresholdSeconds: TimeInterval = 300 // 5 minutes
 
     private let store = DataStore.shared
-    private let queue = DispatchQueue(label: "com.macsync.idle", qos: .utility)
+    private let queue = DispatchQueue(label: "com.lumen.idle", qos: .utility)
     private var timer: DispatchSourceTimer?
 
     private var idleStart: Date?

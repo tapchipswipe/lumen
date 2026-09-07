@@ -1,137 +1,99 @@
-# macsync — Project Memory & State
+# ⚡ LUMEN SYSTEM MEMORY & ARCHITECTURAL SPECIFICATION
 
 Persistent context for future development sessions. **Read this first.**
 
-## What this is
+---
 
-A macOS menu-bar lifelogging agent ("macsync", formerly OmniTracker) that collects
-supplementary user-activity metadata and syncs a daily JSON archive to iCloud Drive.
-Repo: `github.com/tapchipswipe/macsync`. Local: `/Users/lucasdespot/macsync`.
+## 🏷️ Identity & Naming Conventions
+- **App Name**: **Lumen** (fully rebranded from `macsync`).
+- **Binary**: `Lumen`
+- **Bundle**: `/Applications/Lumen.app`
+- **Distribution Package**: `build/Lumen.dmg` (3.7MB)
+- **Mobile Target**: `mobile/distribution/LumenMobile.ipa` (ARM64 iOS standalone)
+- **Bundle Identifier**: `com.lumen.app`
+- **Code Signing**: Stable `macsync-dev` self-signed identity preserved in macOS login keychain to prevent TCC Accessibility and Screen Recording permission invalidation across incremental builds.
+- **Auto Version Bump Rule**: **Every time any code change or update is made** to the Lumen project (macOS or iOS), the patch version number MUST be auto-incremented by 1 before rebuilding.
+- **Current Version**: `2.3.6` (stamped across `Resources/Info.plist`, `mobile/ios/Resources/Info.plist`, `build_ios.sh`, `AGENTS.md`, and `GEMINI.md`).
 
-## Key committed facts
+---
 
-- **Version**: `0.5.3` in `Info.plist` (bump per release).
-- **History**: v0.1.0 initial build → v0.2.0 visual overhaul → v0.3.0 context pack part 1
-  → v0.3.1 update checker → v0.3.2 Secure Input → v0.3.3 blank-tab fix + focus ring
-  → v0.4.0 context pack part 2 (8 new collectors) → v0.5.0 receipts & spending
-  → v0.5.1 receipt filter refinements ($0 / decline rejection) → v0.5.2 investment,
-  banking, flight alert, and cloud budget exclusion (hard gate on brokerage/trade
-  platforms like Public/Robinhood, airline flight status/check-in/SkyMiles alerts,
-  cloud budget thresholds, and banking transfers; 110 tests) → v0.5.3 enhanced
-  discounts, shipping update filtering, loan/payoff exclusion, promo rejection,
-  and comprehensive card extraction (CAVA CZ 8031, Shopify cards; 120 tests).
-- **Released via GitHub Releases**: `v0.1.0` … `v0.3.3`, each with `build/macsync.dmg`.
-- **Design language**: dark Vorssaint-like. `AppTheme` lives in
-  `Sources/macsync/Dashboard/DashboardView.swift` (menu + dashboard share it).
-  Tab strip + pill footer pattern in `MenuContentView.swift`.
-- **Architecture**: SwiftUI `MenuBarExtra` (`.window` style), `@main MacsyncApp`,
-  `@MainActor final class AppState` (singleton `shared`) drives tracking/sync/state.
-  13+ collectors in `Sources/macsync/Collectors/`. JSONL buffer via `DataStore`.
-  Daily sync via `iCloudSync` + `SyncScheduler`. Unit tests via `./test.sh` (22).
+## 🏛️ Comprehensive Architecture & Systems Map
 
-## Cold start build command
+### 1. 🖥️ Floating Glass HUD (`HUD/HUDWindowController.swift`, `HUD/HUDContentView.swift`)
+- Borderless, draggable, glassmorphic desktop overlay (`.floating` window level).
+- Displays live active focus minutes, real-time typing keys, active project/git branch, and a 1-click Focus Shield button.
 
-- **Build**: `cd /Users/lucasdespot/macsync && ./build.sh` — compiles via `swiftc`
-  (no full Xcode), bundles `.app`, ad-hoc/`macsync-dev` signs, makes `.dmg`.
-  Artifacts in `build/`. **Picks up new files automatically** (globs `Sources/**`).
-- **Test**: `./test.sh` — compiles `Tests/` + runs checks. Currently 22/22 passing.
-- **Version bump**: `sed -i '' 's|<string>0.3.3</string>|<string>0.4.0</string>|' Resources/Info.plist`
-  then rebuild.
+### 2. ⏳ Attention Time Machine (`TimeMachine/TimeMachineEngine.swift`, `TimeMachine/TimeMachineScrubberView.swift`)
+- 24-hour cognitive scrubber discretizing the day into 288 5-minute frames.
+- Replays active window titles, keystroke intensity, meeting status, Wi-Fi networks, receipts, and **Git commit nodes**.
 
-## SIGNING / PERMISSIONS (critical)
+### 3. 📈 Financial Runway & IRS Schedule-C Tax Engine (`Forecast/FinancialForecaster.swift`, `Forecast/FinancialRunwayView.swift`, `Tax/ScheduleCTaxEngine.swift`)
+- Linear time-series regression forecasting projected month-end burn rate.
+- Mapped Schedule-C tax deduction engine for SaaS (Line 18), hardware (Line 22), and business meals (Line 24b) with live 28% tax savings calculator.
+- Truth-bound: Displays $0.00 baseline until real receipts are logged via OCR or mail ingestion. Zero hardcoded mock numbers.
 
-- Uses a stable self-signed **`macsync-dev`** code-signing identity in the keychain
-  (created via OpenSSL + `security add-trusted-cert`). **Ad-hoc signing changes the
-  cdhash each rebuild → silently invalidates TCC grants.** The stable identity makes
-  Accessibility/Screen Recording/Focus grants persist across rebuilds.
-- Permissions requested: Accessibility, Screen Recording, Location, Apple Events
-  (browsers + Mail), Focus (Intents). Onboarding window (`OnboardingWindow.swift`)
-  requests them; **TCC grants require a full quit + relaunch** (macOS reads at process
-  start). If a permission silently fails: `killall macsync`, relaunch.
-- TCC resets (for dev): `tccutil reset Accessibility com.macsync.app` (screen
-  recording key is `com.apple.screenrecording`, can be blunt-reset via `tccutil reset
-## V0.4.0 CONTEXT PACK — DONE (released as v0.4.0)
+### 4. 🧠 On-Device Neural ⌘K Copilot (`Copilot/LumenCopilotEngine.swift`, `Search/SpotlightPaletteView.swift`)
+- Spotlight-style palette triggered by ⌘K.
+- Natural language intent synthesis across Power, Git Commits, Subscriptions, Music Flow, iCloud Storage, Taxes, and Work Output.
 
-**8 new collectors** (all in `Collectors/`): Session, CameraMic,
-Media (private MediaRemote via `dlopen`/`dlsym`), NetworkContext
-(CoreWLAN + VPN scan; BSSID SHA-256 hashed), Clipboard (**metadata only**),
-FocusMode (`INFocusStatusCenter`), AppLifecycle, Mail (AppleScript; sender
-names opt-in via `macsync.mailSenderNames`). All wired into
-`AppState.startTracking()/stopTracking()`; 8 new `Payload` cases in
-`Models.swift`.
+### 5. ☁️ 6-Pillar iCloud Storage Super-Optimizer Suite
+- **1-Click Master Turbo Sweep** (`AppState.runMasterTurboSweep()` in `StorageHelperView.swift`): Evicts backups, triages downloads, trims dev bloat, and clears disposable system caches in 1 pass.
+- **Autonomous Storage Guardian** (`Storage/AutoEvictionGuardian.swift`): Runs every 15 mins in background, automatically evicting files if disk space < 15GB.
+- **Developer Bloat Trimmer** (`Storage/DeveloperProjectTrimmer.swift`): 1-click cleaner for `node_modules`, `.venv`, `.build`, and `target` directories.
+- **Folder Pinning Engine** (`Storage/FolderPinningEngine.swift`): Whitelist protection for local offline repos.
+- **iCloud Sync Radar** (`Storage/iCloudSyncRadar.swift`): Real-time pending queue & conflict duplicate resolver.
+- **Download Triage Engine** (`Storage/DownloadTriageEngine.swift`): Auto-routes stale installers, media, and spreadsheets to iCloud.
+- **Visual Ghost File Inspector** (`Storage/GhostFileInspectorView.swift`): Renders local vs dataless cloud storage ratios.
 
-Aggregator (`TodayStats.swift`/`Insights.swift`): meeting inference (camera on,
-or mic-on + meeting frontmost app; 75s gap bridge), media seconds by app,
-clipboard sums, mail counts/senders, lock/wake counts, app launches,
-Wi-Fi/VPN, Focus, now-playing — plus context insights bullets.
+### 6. 🔋 Apple Silicon Power & Battery Runway Engine (`Power/PowerPacingEngine.swift`, `Power/BatteryRunwayCardView.swift`)
+- Reads Apple Silicon SoC package power (Watts), discharge pacing, thermal state, and battery cycle count via IOKit.
+- Shows real-time battery runway during deep work (*"Drawing ~4.2W · 6h 45m remaining"*).
 
-UI: LIVE context strip ("NOW") in the menu Today tab; Dashboard context
-section = Sessions / Media / Clipboard sparkline / Mail cards + live meeting
-indicator (video bubble w/ LIVE badge when a camera/mic meeting is current;
-"Xm on calls today" summary otherwise). Context cards also appear on the
-Week/Month ranges.
+### 7. 🚢 Git Output Velocity Linker (`Git/GitVelocityLinker.swift`)
+- Scans local repositories (`~/Projects`, `~/repos`, `~/welift_sandbox`) for recent commits, active branches, and messages.
+- **Dataless iCloud Protection**: Checks `lstat` for `UF_DATALESS` (`0x40000000`). If `.git/HEAD` is an evicted cloud stub (common on iCloud Documents/Desktop), it safely skips it to prevent kernel read hangs.
+- **Safe Timeout Guard**: Subshell `git` executions run with `safeRunGit` bounded by a strict 2.0s deadline via `Process.terminate()`.
 
-**TCC crash fix (important)**: `FocusModeCollector` touches
-`INFocusStatusCenter`; without `NSFocusStatusUsageDescription` in
-`Resources/Info.plist` macOS SIGABRTs the app on every launch (seen in
-`~/Library/Logs/DiagnosticReports`). Key added in 0.4.0. If Focus-related
-crashes ever reappear, check that key first.
+### 8. 💳 30-Day Predictive Subscription Renewal & Price Hike Radar (`Spend/SubscriptionRenewalCalendar.swift`, `Spend/SubscriptionRenewalCalendarView.swift`)
+- Forecasts upcoming 30-day recurring subscription milestones from verified receipts.
+- Flags imminent charges (<= 3 days) and alerts on price hike increases.
 
-## KNOWN BUILD STATUS (v0.4.0)
+### 9. 🎵 Cognitive Flow & Audio Profiler (`Audio/AudioFlowProfiler.swift`, `Audio/AudioFlowInsightView.swift`)
+- Pairs Apple Music / Spotify playback with keystroke velocity and Focus Scores.
+- Generates "Soundtrack to Deep Work" cards highlighting high-productivity music.
 
-- `./test.sh`: **34/34 checks passed** (22 baseline + 12 context-pack).
-- `./build.sh`: **0 errors / 0 warnings**, `macsync-dev` signed, DMG ~2MB.
-- Smoke-tested: launches + stays running; buffer gains inputMetrics,
-  cameraMicState, networkContext, focusModeState, locationPing, appFocus,
-  syncResult kinds.
-- Benign log noise: `com.apple.linkd.autoShortcut` connection errors (no App
-  Intents), MediaRemote "no now-playing client", CFBundle factory warning.
+### 10. 🛡️ Privacy & Permissions Hub (`Permissions/PermissionsHubView.swift`, `Permissions/PermissionsManager.swift`)
+- Unified hub covering Accessibility, Screen Recording, Automation, Location Services, and **Full Disk Access (FDA)**.
 
-## V0.5.0 RECEIPTS & SPENDING — DONE (shipped as v0.5.0)
+---
 
-**Capture is OPT-IN and OFF by default** (`macsync.receiptCaptureEnabled`).
-When off, no email bodies are ever read.
+## 🗄️ Storage & Sync Data Flow
 
-- `ReceiptMailCollector` (Collectors/): two-pass AppleScript against Mail.app
-  (works with Gmail accounts connected to Mail — verified against
-  despotlucas@gmail.com). Pass A lists recent ids/subjects/senders (fast
-  `whose date received` filter + 400 cap — do NOT iterate all messages, times
-  out on big inboxes). Pass B fetches bodies only for ids passing
-  `ReceiptParser.looksLikeReceipt`, and marks them processed.
-- Dedup: `state/processed-receipt-messages.json` (last 2000 ids). Deleting that
-  file re-stores everything — the Aug-30 test duplicates came from manually
-  wiping it mid-test, not from a code bug.
-- `ReceiptParser` (Spend/): labeled totals ("Total: $x") beat bare "$x";
-  card masks ("ending in 1234", "•••• 1234", "XXXX 1234") → last4;
-  merchant = subject "receipt from X" > known sender domain (~45 rules).
-  Confidence <0.75 → needsReview (flagged in Wallet tab). NOTE: marketing
-  emails with "$60 off" style text produce false positives — they are flagged
-  needsReview, and the user can re-categorize/dismiss in the UI.
-- Receipts are stored with `ts` = the message’s received date → they land in
-  that day’s buffer file and ride that day’s archive to iCloud.
-- `SpendStats` rollups (by month/category/card/merchant + deductible total);
-  `eventsForMonth` combines buffer + archived days.
-- UI: Wallet menu tab (month total, deductible, by-category, by-card chips,
-  recent receipts, Add Receipt… sheet for cash/paper), Dashboard spendSection
-  (Today/Week/Month), Settings WALLET section (capture toggle, CSV/JSON export,
-  open spend folder).
-- Export: `~/Documents/macsync-spend/macsync-receipts-YYYY-MM-DD.csv|json`.
-- Smoke-tested live: 11 stored / 3 skipped-no-amount / rescan "0 fresh".
+- **Local Live Buffer**: `~/Library/Application Support/Lumen/buffer/events-YYYY-MM-DD.jsonl`
+- **State Store**: `~/Library/Application Support/Lumen/state/`
+- **Archive Store**: `~/Library/Application Support/Lumen/archive/`
+- **Local Fallback Exports**: `~/Library/Application Support/Lumen/Exports/`
+- **iCloud Synced Archive**: `~/Library/Mobile Documents/com~apple~CloudDocs/Lumen/`
+  - Subdirectories: `builds/` (latest `Lumen.dmg`, `LumenMobile.ipa`), `agent_context/` (architectural blueprints).
+- **UserDefaults Key Migration**:
+  - `SpendOptions.migrateKeysIfNeeded()` runs at startup to cleanly transition legacy `macsync.*` keys to `lumen.*` with zero data loss.
 
-## Next steps (post-v0.4.0 — ideas, not committed)
+---
 
-1. Settings tab: Mail sender-names toggle (`macsync.mailSenderNames`).
-2. Weekly digest (notification or email) from archived summaries.
-3. In-window archive viewer for past days.
-4. Swift 6 strict-concurrency audit of collectors (swiftc 6 toolchain).
-5. Night-pause + Sleep schedule polish; per-app clipboard/focus history.
+## 🛠️ Build, Test & Deployment Pipeline
 
-## Common pitfalls
-
-- Editor tool flaked on whitespace-sensitive Swift edits; **use python3 atomic patch
-  scripts** for multi-line insertions (idempotent, assert-guarded).
-- `git mv`/rename: reflect in `project.yml` too.
-- Privacy: input/clipboard/browser are METADATA ONLY. Sender names off by default.
-- Window titles require Screen Recording; keystrokes hidden during Secure Input
-  (password fields); tap re-enables on `!.tapDisabled`.
-  ScreenCapture`).
+- **Automated Regression Suite**:
+  ```bash
+  cd /Users/lucasdespot/macsync && ./test.sh
+  ```
+  **111/111 automated checks pass** across core crypto, spend reconciliation, cognitive handoff, predictive focus, vector memory, and schema validation.
+- **Full macOS Build & Deploy**:
+  ```bash
+  cd /Users/lucasdespot/macsync && ./build.sh
+  ```
+  Compiles with `swiftc`, packages `/Applications/Lumen.app` and `build/Lumen.dmg`, signs with `macsync-dev`.
+- **iOS Sideload IPA Build**:
+  ```bash
+  cd /Users/lucasdespot/macsync && bash mobile/scripts/build_ios.sh
+  ```
+  Outputs standalone ARM64 payload at `mobile/distribution/LumenMobile.ipa`. Compatible with AltStore, Sideloadly, and TrollStore.

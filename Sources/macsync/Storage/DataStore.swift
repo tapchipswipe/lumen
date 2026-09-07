@@ -17,7 +17,7 @@ final class DataStore {
     let exportsDir: URL
     let archiveDir: URL
 
-    private let writeQueue = DispatchQueue(label: "com.macsync.datastore", qos: .utility)
+    private let writeQueue = DispatchQueue(label: "com.lumen.datastore", qos: .utility)
     private let lock = NSLock()
 
     /// Counters read on main, written under lock.
@@ -30,7 +30,7 @@ final class DataStore {
 
     private init() {
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        root = appSupport.appendingPathComponent("macsync", isDirectory: true)
+        root = appSupport.appendingPathComponent("Lumen", isDirectory: true)
         bufferDir = root.appendingPathComponent("buffer", isDirectory: true)
         stateDir = root.appendingPathComponent("state", isDirectory: true)
         exportsDir = root.appendingPathComponent("Exports", isDirectory: true)
@@ -50,6 +50,14 @@ final class DataStore {
     private var stateFile: URL { stateDir.appendingPathComponent("daily-stats.json") }
     private var inputStateFile: URL { stateDir.appendingPathComponent("input-metrics.json") }
 
+    private var activeDay: String? = nil
+    private var activeHandle: FileHandle? = nil
+    private var statsNotificationPending = false
+
+    deinit {
+        try? activeHandle?.close()
+    }
+
     // MARK: - Event append
 
     func append(_ event: TrackerEvent) {
@@ -59,23 +67,43 @@ final class DataStore {
             guard let data = try? SyncFormat.jsonEncoder.encode(event) else { return }
             var line = data
             line.append(0x0A) // newline
-            if FileManager.default.fileExists(atPath: file.path) {
-                if let handle = try? FileHandle(forWritingTo: file) {
-                    defer { try? handle.close() }
-                    do {
-                        try handle.seekToEnd()
-                        try handle.write(contentsOf: line)
-                    } catch {
-                        Log.store.error("append error: \(error.localizedDescription)")
-                    }
+
+            if activeDay != day || activeHandle == nil {
+                try? activeHandle?.close()
+                activeHandle = nil
+                activeDay = day
+                if !FileManager.default.fileExists(atPath: file.path) {
+                    FileManager.default.createFile(atPath: file.path, contents: nil)
+                }
+                activeHandle = try? FileHandle(forWritingTo: file)
+                _ = try? activeHandle?.seekToEnd()
+            }
+
+            if let handle = activeHandle {
+                do {
+                    try handle.write(contentsOf: line)
+                } catch {
+                    Log.store.error("append error: \(error.localizedDescription)")
                 }
             } else {
                 try? line.write(to: file, options: .atomic)
             }
+
             lock.lock()
             if day == SyncFormat.dayString() { todayEventCount += 1 }
+            let needsNotify = !statsNotificationPending
+            statsNotificationPending = true
             lock.unlock()
-            DispatchQueue.main.async { [weak self] in self?.onStatsChanged?() }
+
+            if needsNotify {
+                writeQueue.asyncAfter(deadline: .now() + 0.25) { [weak self] in
+                    guard let self else { return }
+                    self.lock.lock()
+                    self.statsNotificationPending = false
+                    self.lock.unlock()
+                    DispatchQueue.main.async { self.onStatsChanged?() }
+                }
+            }
         }
     }
 

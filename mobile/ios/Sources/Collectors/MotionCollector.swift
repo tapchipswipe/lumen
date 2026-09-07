@@ -38,11 +38,16 @@ public final class MotionCollector {
                 confidence: conf
             )
 
-            if activity.walking { self?.currentActivity = "Walking" }
-            else if activity.running { self?.currentActivity = "Running" }
-            else if activity.automotive { self?.currentActivity = "Driving" }
-            else if activity.cycling { self?.currentActivity = "Cycling" }
-            else { self?.currentActivity = "Stationary" }
+            let act: String
+            if activity.walking { act = "Walking" }
+            else if activity.running { act = "Running" }
+            else if activity.automotive { act = "Driving" }
+            else if activity.cycling { act = "Cycling" }
+            else { act = "Stationary" }
+
+            DispatchQueue.main.async {
+                self?.currentActivity = act
+            }
 
             MobileDataStore.shared.append(MobileTrackerEvent(
                 kind: .motionActivity,
@@ -55,8 +60,13 @@ public final class MotionCollector {
             let midnight = calendar.startOfDay(for: Date())
             pedometer.startUpdates(from: midnight) { [weak self] data, error in
                 guard let data = data, error == nil else { return }
-                self?.todaySteps = data.numberOfSteps.intValue
-                self?.todayDistanceMeters = data.distance?.doubleValue ?? 0.0
+                let steps = data.numberOfSteps.intValue
+                let dist = data.distance?.doubleValue ?? 0.0
+
+                DispatchQueue.main.async {
+                    self?.todaySteps = steps
+                    self?.todayDistanceMeters = dist
+                }
 
                 let payload = PedometerPayload(
                     startDate: data.startDate,

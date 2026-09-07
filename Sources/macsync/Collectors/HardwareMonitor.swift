@@ -6,7 +6,7 @@ import Darwin
 /// memory (host_statistics64), network throughput (getifaddrs deltas).
 final class HardwareMonitor {
     private let store = DataStore.shared
-    private let queue = DispatchQueue(label: "com.macsync.hardware", qos: .utility)
+    private let queue = DispatchQueue(label: "com.lumen.hardware", qos: .utility)
     private var timer: DispatchSourceTimer?
 
     private var previousCPUTicks: (user: UInt64, system: UInt64, idle: UInt64, nice: UInt64)?

@@ -92,8 +92,8 @@ final class AppState: ObservableObject {
     /// True while macOS Secure Input is withholding keyDown events from the tap.
     @Published var secureInputSuppressed = false
     /// Menu-bar title mode (#7): show live active time next to the icon.
-    @Published var showMenuBarTime = UserDefaults.standard.bool(forKey: "macsync.menuBarTime") {
-        didSet { UserDefaults.standard.set(showMenuBarTime, forKey: "macsync.menuBarTime") }
+    @Published var showMenuBarTime = UserDefaults.standard.bool(forKey: "lumen.menuBarTime") {
+        didSet { UserDefaults.standard.set(showMenuBarTime, forKey: "lumen.menuBarTime") }
     }
 
     private var cancellables = Set<AnyCancellable>()
@@ -112,6 +112,7 @@ final class AppState: ObservableObject {
     // MARK: - Lifecycle
 
     func applicationDidFinishLaunching() {
+        SpendOptions.migrateKeysIfNeeded()   // carry over any macsync.* prefs → lumen.*
         DataStore.shared.pruneBuffers(olderThan: 30)
         DataStore.shared.pruneInvalidReceipts()
         permissions.runOnboardingIfNeeded(locationTracker: locationTracker)
@@ -221,58 +222,84 @@ final class AppState: ObservableObject {
 
     func refreshAggregation() {
         enforceNightPause()
-        let day = SyncFormat.dayString()
-        let events = DataStore.shared.events(forDay: day)
-        let archived = HistoryLoader.archivedEvents(daysBack: 7)
-        stats = TodayAggregator.compute(events: events, archived: archived)
-        liveKeystrokes = max(liveKeystrokes, stats.keystrokes)
-        liveClicks = max(liveClicks, stats.clicks)
-        todayStory = DayStoryAggregator.buildStory(events: events)
-        spendToday = SpendStats.calculate(events: SpendStats.eventsForToday())
-        spendMonth = SpendStats.calculate(events: SpendStats.eventsForMonth(monthOffset: selectedSpendMonthOffset), monthOffset: selectedSpendMonthOffset)
+        let monthOffset = selectedSpendMonthOffset
+        let curLiveKeys = liveKeystrokes
 
-        let allReceipts = SpendStats.allReceipts()
-        subscriptions = SubscriptionRadar.analyze(receipts: allReceipts)
-        predictedRenewals = SubscriptionRenewalCalendar.forecastRenewals(subscriptions: subscriptions.activeSubscriptions, receipts: allReceipts)
-        taxReport2026 = ScheduleCTaxEngine.generateReport(year: 2026, receipts: allReceipts)
-        financialForecast = FinancialForecaster.computeForecast(spendMonth: spendMonth, taxReport: taxReport2026)
-        
-        powerSnapshot = PowerPacingEngine.captureSnapshot()
-        powerHistoryWatts.append(powerSnapshot.estimatedWatts)
-        if powerHistoryWatts.count > 30 {
-            powerHistoryWatts.removeFirst()
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            let day = SyncFormat.dayString()
+            let events = DataStore.shared.events(forDay: day)
+            let archived = HistoryLoader.archivedEvents(daysBack: 7)
+            let computedStats = TodayAggregator.compute(events: events, archived: archived)
+            let story = DayStoryAggregator.buildStory(events: events)
+            let sToday = SpendStats.calculate(events: SpendStats.eventsForToday())
+            let sMonth = SpendStats.calculate(events: SpendStats.eventsForMonth(monthOffset: monthOffset), monthOffset: monthOffset)
+
+            let allReceipts = SpendStats.allReceipts()
+            let subs = SubscriptionRadar.analyze(receipts: allReceipts)
+            let renewals = SubscriptionRenewalCalendar.forecastRenewals(subscriptions: subs.activeSubscriptions, receipts: allReceipts)
+            let tax = ScheduleCTaxEngine.generateReport(year: 2026, receipts: allReceipts)
+            let forecast = FinancialForecaster.computeForecast(spendMonth: sMonth, taxReport: tax)
+
+            let power = PowerPacingEngine.captureSnapshot()
+            let commits = GitVelocityLinker.scanRecentCommits()
+            let frames = TimeMachineEngine.buildTimeline(events: events, gitCommits: commits)
+            let cognitive = CognitiveFragmentationEngine.compute(todayStats: computedStats, frames: frames, liveKeystrokes: curLiveKeys)
+            let standup = StandupGeneratorEngine.generate(stats: computedStats, frames: frames, cognitive: cognitive)
+
+            let audio = AudioFlowProfiler.analyzeAudioFlow(events: events)
+            let crossDevice = CrossDeviceScreenTimeCollector.shared.generateReport()
+            let clusters = WorkspaceClusterEngine.analyze(events: events)
+            let storage = iCloudStorageOptimizer.scanStorage()
+
+            let yesterdayEvents = archived.first?.events ?? []
+            let brief = MorningBriefingEngine.generateBrief(eventsYesterday: yesterdayEvents, subscriptions: subs, pacing: sMonth.pacing)
+            var appMap: [String: TimeInterval] = [:]
+            for app in computedStats.apps {
+                appMap[app.name] = app.seconds
+            }
+            let zombies = ZombieDetector.detectZombies(subscriptions: subs.activeSubscriptions, appUsage30Days: appMap)
+            let aiFleet = AIFleetTelemetryCollector.scanFleet()
+
+            LocalVectorStore.shared.indexLifelogEvents(events)
+
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.stats = computedStats
+                self.liveKeystrokes = max(self.liveKeystrokes, computedStats.keystrokes)
+                self.liveClicks = max(self.liveClicks, computedStats.clicks)
+                self.todayStory = story
+                self.spendToday = sToday
+                self.spendMonth = sMonth
+                self.subscriptions = subs
+                self.predictedRenewals = renewals
+                self.taxReport2026 = tax
+                self.financialForecast = forecast
+                self.powerSnapshot = power
+                self.powerHistoryWatts.append(power.estimatedWatts)
+                if self.powerHistoryWatts.count > 30 {
+                    self.powerHistoryWatts.removeFirst()
+                }
+                self.gitCommits = commits
+                self.timeMachineFrames = frames
+                self.cognitiveSnapshot = cognitive
+                self.dailyStandup = standup
+                self.audioFlowReport = audio
+                self.crossDeviceReport = crossDevice
+                self.workspaceClusters = clusters
+                self.storageSnapshot = storage
+                self.morningBrief = brief
+                self.zombieAlerts = zombies
+                self.aiFleetSummary = aiFleet
+
+                FocusShieldEngine.shared.evaluateFocusState(liveWPM: Double(self.liveKeystrokes) / 5.0, uncommittedDiffLines: 0)
+            }
         }
-
-        gitCommits = GitVelocityLinker.scanRecentCommits()
-        timeMachineFrames = TimeMachineEngine.buildTimeline(events: events, gitCommits: gitCommits)
-        cognitiveSnapshot = CognitiveFragmentationEngine.compute(todayStats: stats, frames: timeMachineFrames, liveKeystrokes: liveKeystrokes)
-        dailyStandup = StandupGeneratorEngine.generate(stats: stats, frames: timeMachineFrames, cognitive: cognitiveSnapshot)
-
-        audioFlowReport = AudioFlowProfiler.analyzeAudioFlow(events: events)
-        crossDeviceReport = crossDeviceCollector.generateReport()
-        workspaceClusters = WorkspaceClusterEngine.analyze(events: events)
-        storageSnapshot = iCloudStorageOptimizer.scanStorage()
-
-        let yesterdayEvents = archived.first?.events ?? []
-        morningBrief = MorningBriefingEngine.generateBrief(eventsYesterday: yesterdayEvents, subscriptions: subscriptions, pacing: spendMonth.pacing)
-        var appMap: [String: TimeInterval] = [:]
-        for app in stats.apps {
-            appMap[app.name] = app.seconds
-        }
-        zombieAlerts = ZombieDetector.detectZombies(subscriptions: subscriptions.activeSubscriptions, appUsage30Days: appMap)
 
         // Apple Health — load from cache synchronously, refresh async in background
         healthSnapshot = AppleHealthEngine.latestSnapshot()
         AppleHealthEngine.refresh { [weak self] snap in
             self?.healthSnapshot = snap
         }
-
-        // AI Fleet Telemetry & Multi-Account Quota Radar
-        aiFleetSummary = AIFleetTelemetryCollector.scanFleet()
-
-        // Neural Vector Semantic Memory & Focus Shield Pacing
-        LocalVectorStore.shared.indexLifelogEvents(events)
-        FocusShieldEngine.shared.evaluateFocusState(liveWPM: Double(liveKeystrokes) / 5.0, uncommittedDiffLines: 0)
     }
 
     func refreshAIFleet() {
@@ -476,7 +503,7 @@ final class AppState: ObservableObject {
     func exportScheduleCTaxCSV() {
         let csv = ScheduleCTaxEngine.exportCSV(report: taxReport2026)
         let savePanel = NSSavePanel()
-        savePanel.nameFieldStringValue = "macsync_ScheduleC_\(taxReport2026.year).csv"
+        savePanel.nameFieldStringValue = "lumen_ScheduleC_\(taxReport2026.year).csv"
         if savePanel.runModal() == .OK, let url = savePanel.url {
             try? csv.write(to: url, atomically: true, encoding: .utf8)
         }
@@ -485,7 +512,7 @@ final class AppState: ObservableObject {
     func exportCPATaxMarkdown() {
         let md = ScheduleCTaxEngine.exportCPAMarkdown(report: taxReport2026)
         let savePanel = NSSavePanel()
-        savePanel.nameFieldStringValue = "macsync_CPA_Report_\(taxReport2026.year).md"
+        savePanel.nameFieldStringValue = "lumen_CPA_Report_\(taxReport2026.year).md"
         if savePanel.runModal() == .OK, let url = savePanel.url {
             try? md.write(to: url, atomically: true, encoding: .utf8)
         }

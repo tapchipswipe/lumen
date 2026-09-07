@@ -88,7 +88,7 @@ enum StandupGeneratorEngine {
 
     private static func extractGitActivity() -> (commits: [(repo: String, branch: String, message: String)], diffLines: Int) {
         let repos = [
-            "/Users/lucasdespot/macsync",
+            "/Users/lucasdespot/macsync" /* legacy git root */,
             "/Users/lucasdespot/paper_trading_bot",
             NSHomeDirectory() + "/Projects",
             NSHomeDirectory() + "/repos"

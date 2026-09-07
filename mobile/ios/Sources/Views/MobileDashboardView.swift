@@ -131,6 +131,61 @@ public struct MobileDashboardView: View {
                     }
                     .padding(.top, 6)
 
+                    // Cognitive Focus Pacing & iPhone Taptic Dispatcher
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack {
+                            Image(systemName: "brain.head.profile")
+                                .foregroundColor(.pink)
+                            Text("COGNITIVE FOCUS PACING")
+                                .font(.system(size: 11, weight: .bold, design: .monospaced))
+                                .foregroundColor(.secondary)
+                            Spacer()
+                            Text("OPTIMAL FOCUS")
+                                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                .foregroundColor(.green)
+                        }
+
+                        HStack(spacing: 8) {
+                            Button(action: {
+                                let generator = UIImpactFeedbackGenerator(style: .heavy)
+                                generator.prepare()
+                                generator.impactOccurred()
+                            }) {
+                                HStack(spacing: 6) {
+                                    Image(systemName: "iphone.radiowaves.left.and.right")
+                                    Text("Test Phone Haptic Cue")
+                                        .font(.system(size: 12, weight: .semibold))
+                                }
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 10)
+                                .background(Color.pink.opacity(0.18))
+                                .foregroundColor(.pink)
+                                .cornerRadius(10)
+                                .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.pink.opacity(0.3), lineWidth: 1))
+                            }
+
+                            Button(action: {
+                                LumenLiveActivityManager.shared.startLiveActivity(branch: "main", activityName: "Deep Work")
+                            }) {
+                                HStack(spacing: 6) {
+                                    Image(systemName: "smallcircle.filled.circle.fill")
+                                    Text("Start Dynamic Island HUD")
+                                        .font(.system(size: 12, weight: .semibold))
+                                }
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 10)
+                                .background(Color.blue.opacity(0.18))
+                                .foregroundColor(Color(red: 0.36, green: 0.55, blue: 1.0))
+                                .cornerRadius(10)
+                                .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.blue.opacity(0.3), lineWidth: 1))
+                            }
+                        }
+                    }
+                    .padding(14)
+                    .background(Color(white: 0.10))
+                    .cornerRadius(14)
+                    .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.white.opacity(0.08), lineWidth: 1))
+
                     // System Storage & File Info Card
                     VStack(alignment: .leading, spacing: 8) {
                         HStack {
@@ -141,7 +196,7 @@ public struct MobileDashboardView: View {
                                 .foregroundColor(.secondary)
                             Spacer()
                         }
-                        Text("Files are accessible in the iOS Files app -> 'On My iPhone' -> 'Lumen' -> 'macsync_exports'.")
+                        Text("Files are accessible in the iOS Files app -> 'On My iPhone' -> 'Lumen' -> 'lumen_exports'.")
                             .font(.system(size: 12))
                             .foregroundColor(Color(white: 0.8))
                     }

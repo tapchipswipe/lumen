@@ -152,6 +152,21 @@ enum SpendStats {
         return s
     }
 
+    private static let monthTitleFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "MMMM yyyy"
+        return f
+    }()
+
+    /// Month title for display (e.g. "August 2026" or "July 2026").
+    static func monthTitle(for monthOffset: Int = 0) -> String {
+        let cal = Calendar.current
+        let now = Date()
+        guard let target = cal.date(byAdding: .month, value: monthOffset, to: now) else { return "This Month" }
+        return monthTitleFormatter.string(from: target)
+    }
+
     /// All receipt events whose transaction date lands in the month of
     /// `monthOffset` (0 = current). Combines today's buffer with archives across 365 days.
     static func eventsForMonth(monthOffset: Int = 0) -> [TrackerEvent] {
@@ -162,35 +177,12 @@ enum SpendStats {
               let targetStart = cal.date(from: cal.dateComponents([.year, .month], from: target)),
               let targetEnd = cal.date(byAdding: .month, value: 1, to: targetStart) else { return [] }
 
-        var events: [TrackerEvent] = []
-        // Scan all active buffer files for receipts matching target month
-        for day in DataStore.shared.bufferedDays() {
-            let dayEvents = DataStore.shared.events(forDay: day)
-            events += dayEvents.filter { e in
-                guard case .receipt(let p) = e.payload else { return false }
-                return p.transactionDate >= targetStart && p.transactionDate < targetEnd
-            }
+        let receipts = allReceipts()
+        return receipts.filter { p in
+            p.transactionDate >= targetStart && p.transactionDate < targetEnd
+        }.map { p in
+            TrackerEvent(ts: p.transactionDate, kind: .receipt, payload: .receipt(p))
         }
-        // Past synced days in archive directory across 366 days
-        let archived = HistoryLoader.archivedEvents(daysBack: 366)
-        for (_, evs) in archived {
-            events += evs.filter { e in
-                guard case .receipt(let p) = e.payload else { return false }
-                return p.transactionDate >= targetStart && p.transactionDate < targetEnd
-            }
-        }
-        return events
-    }
-
-    /// Month title for display (e.g. "August 2026" or "July 2026").
-    static func monthTitle(for monthOffset: Int = 0) -> String {
-        let cal = Calendar.current
-        let now = Date()
-        guard let target = cal.date(byAdding: .month, value: monthOffset, to: now) else { return "This Month" }
-        let f = DateFormatter()
-        f.locale = Locale(identifier: "en_US_POSIX")
-        f.dateFormat = "MMMM yyyy"
-        return f.string(from: target)
     }
 
     /// Today's receipt events (live buffer).

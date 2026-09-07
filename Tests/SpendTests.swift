@@ -163,7 +163,7 @@ enum DayStoryTests {
                                currency: "USD", cardLast4: "8031", category: .dining,
                                transactionDate: now, capturedAt: now, source: "mail",
                                mailMessageID: nil, confidence: 1.0, needsReview: false, notes: "Order #6191809579")
-        let w = WindowFocusPayload(appName: "Xcode", windowTitle: "macsync - SpendStats.swift", start: now.addingTimeInterval(-1800), end: now, durationSeconds: 1800)
+        let w = WindowFocusPayload(appName: "Xcode", windowTitle: "Lumen - SpendStats.swift", start: now.addingTimeInterval(-1800), end: now, durationSeconds: 1800)
 
         let e1 = TrackerEvent(ts: now.addingTimeInterval(-1800), kind: .windowFocus, payload: .windowFocus(w))
         let e2 = TrackerEvent(ts: now.addingTimeInterval(-600), kind: .windowFocus, payload: .windowFocus(w))
@@ -256,7 +256,7 @@ enum DeepTelemetryTests {
         let now = Date()
 
         // Phase 1 tests
-        let gitPayload = GitVelocityPayload(observedAt: now, repoName: "macsync", branch: "main", uncommittedDiffLines: 42, commitsToday: 3)
+        let gitPayload = GitVelocityPayload(observedAt: now, repoName: "Lumen", branch: "main", uncommittedDiffLines: 42, commitsToday: 3)
         let gitEvent = TrackerEvent(ts: now, kind: .gitVelocity, payload: .gitVelocity(gitPayload))
         let cliPayload = CLICommandPayload(observedAt: now, commandName: "swift test", exitCode: 0, durationMs: 1500, isBuildOrTest: true)
         let cliEvent = TrackerEvent(ts: now, kind: .cliCommand, payload: .cliCommand(cliPayload))

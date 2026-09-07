@@ -5,7 +5,7 @@ import Foundation
 /// copies it to iCloud Drive (optionally zipped #6 and/or AES-GCM encrypted #9).
 final class iCloudSync {
     private let store = DataStore.shared
-    private let syncQueue = DispatchQueue(label: "com.macsync.icloudsync", qos: .utility)
+    private let syncQueue = DispatchQueue(label: "com.lumen.icloudsync", qos: .utility)
     private let fm = FileManager.default
 
     func syncUnsyncedDays(upToAndIncluding dayString: String) {
@@ -51,7 +51,7 @@ final class iCloudSync {
         }
         if SyncOptions.zipArchives { suffix = "zip" }
 
-        let filename = "macsync_\(dayString).\(suffix)"
+        let filename = "lumen_\(dayString).\(suffix)"
         guard let destination = resolveDestination() else {
             return fail(dayString, events: events.count, msg: "No writable destination", detail: "\(dayString): no destination")
         }
@@ -59,7 +59,7 @@ final class iCloudSync {
             try fm.createDirectory(at: destination.dir, withIntermediateDirectories: true)
             let fileURL = destination.dir.appendingPathComponent(filename)
             if suffix == "zip" {
-                let tmp = fm.temporaryDirectory.appendingPathComponent("macsync-\(dayString).json")
+                let tmp = fm.temporaryDirectory.appendingPathComponent("lumen-\(dayString).json")
                 try payloadData.write(to: tmp, options: .atomic)
                 defer { try? fm.removeItem(at: tmp) }
                 try? fm.removeItem(at: fileURL)
@@ -97,13 +97,13 @@ final class iCloudSync {
 
     private func resolveDestination() -> Destination? {
         if let ubiquity = fm.url(forUbiquityContainerIdentifier: nil) {
-            return Destination(name: "iCloud", dir: ubiquity.appendingPathComponent("Documents/macsync", isDirectory: true))
+            return Destination(name: "iCloud", dir: ubiquity.appendingPathComponent("Documents/Lumen", isDirectory: true))
         }
         let cloudDocs = fm.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/Mobile Documents/com~apple~CloudDocs", isDirectory: true)
         var isDir: ObjCBool = false
         if fm.fileExists(atPath: cloudDocs.path, isDirectory: &isDir), isDir.boolValue {
-            return Destination(name: "iCloudDrive", dir: cloudDocs.appendingPathComponent("macsync", isDirectory: true))
+            return Destination(name: "iCloudDrive", dir: cloudDocs.appendingPathComponent("Lumen", isDirectory: true))
         }
         return Destination(name: "LocalExports", dir: store.exportsDir)
     }

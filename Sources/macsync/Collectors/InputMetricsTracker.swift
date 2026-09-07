@@ -16,7 +16,7 @@ final class InputMetricsTracker {
     private var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
     private var flushTimer: DispatchSourceTimer?
-    private let queue = DispatchQueue(label: "com.macsync.inputmetrics", qos: .userInteractive)
+    private let queue = DispatchQueue(label: "com.lumen.inputmetrics", qos: .userInteractive)
 
     private let lock = NSLock()
     private var bucketStart = Date()
@@ -141,54 +141,89 @@ final class InputMetricsTracker {
 
     // MARK: - Counter mutations (called from tap thread)
 
-    private struct CounterState {
-        var keystrokes = 0
-        var clicks = 0
-        var scrolls = 0
-        var cursorDistance: Double = 0
-        var lastMouseLocation: CGPoint?
-    }
+    private var pendingLiveKeystrokes = 0
+    private var pendingLiveClicks = 0
+    private var isLiveInputFlushScheduled = false
 
     private func incrementKeystroke() {
-        bump { $0.keystrokes += 1 }
-        noteEventTime()
-        DispatchQueue.main.async {
-            AppState.shared.recordLiveInput(keystrokes: 1, clicks: 0)
+        lock.lock()
+        keystrokes += 1
+        pendingLiveKeystrokes += 1
+        lastEventTimestamp = Date()
+        let schedule = !isLiveInputFlushScheduled
+        isLiveInputFlushScheduled = true
+        lock.unlock()
+
+        if schedule {
+            queue.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+                guard let self else { return }
+                self.lock.lock()
+                let k = self.pendingLiveKeystrokes
+                let c = self.pendingLiveClicks
+                self.pendingLiveKeystrokes = 0
+                self.pendingLiveClicks = 0
+                self.isLiveInputFlushScheduled = false
+                self.lock.unlock()
+
+                if k > 0 || c > 0 {
+                    DispatchQueue.main.async {
+                        AppState.shared.recordLiveInput(keystrokes: k, clicks: c)
+                    }
+                }
+            }
         }
     }
+
     private func incrementClick() {
-        bump { $0.clicks += 1 }
-        noteEventTime()
-        DispatchQueue.main.async {
-            AppState.shared.recordLiveInput(keystrokes: 0, clicks: 1)
+        lock.lock()
+        clicks += 1
+        pendingLiveClicks += 1
+        lastEventTimestamp = Date()
+        let schedule = !isLiveInputFlushScheduled
+        isLiveInputFlushScheduled = true
+        lock.unlock()
+
+        if schedule {
+            queue.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+                guard let self else { return }
+                self.lock.lock()
+                let k = self.pendingLiveKeystrokes
+                let c = self.pendingLiveClicks
+                self.pendingLiveKeystrokes = 0
+                self.pendingLiveClicks = 0
+                self.isLiveInputFlushScheduled = false
+                self.lock.unlock()
+
+                if k > 0 || c > 0 {
+                    DispatchQueue.main.async {
+                        AppState.shared.recordLiveInput(keystrokes: k, clicks: c)
+                    }
+                }
+            }
         }
     }
-    private func incrementScroll() { bump { $0.scrolls += 1 }; noteEventTime() }
+
+    private func incrementScroll() {
+        lock.lock()
+        scrolls += 1
+        lastEventTimestamp = Date()
+        lock.unlock()
+    }
 
     private func accumulateCursorDistance(to point: CGPoint) {
-        bump { state in
-            if let last = state.lastMouseLocation {
-                let dx = point.x - last.x
-                let dy = point.y - last.y
-                state.cursorDistance += (dx * dx + dy * dy).squareRoot()
-            }
-            state.lastMouseLocation = point
-        }
-        noteEventTime()
-    }
-
-    private func bump(_ mutate: (inout CounterState) -> Void) {
         lock.lock()
-        var state = CounterState(
-            keystrokes: keystrokes, clicks: clicks, scrolls: scrolls,
-            cursorDistance: cursorDistance, lastMouseLocation: lastMouseLocation
-        )
-        mutate(&state)
-        keystrokes = state.keystrokes
-        clicks = state.clicks
-        scrolls = state.scrolls
-        cursorDistance = state.cursorDistance
-        lastMouseLocation = state.lastMouseLocation
+        if let last = lastMouseLocation {
+            let dx = point.x - last.x
+            let dy = point.y - last.y
+            let distSq = dx * dx + dy * dy
+            if distSq >= 4.0 { // Skip sub-pixel jitter (< 2px)
+                cursorDistance += distSq.squareRoot()
+                lastMouseLocation = point
+            }
+        } else {
+            lastMouseLocation = point
+        }
+        lastEventTimestamp = Date()
         lock.unlock()
     }
 

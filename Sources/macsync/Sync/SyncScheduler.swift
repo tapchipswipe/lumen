@@ -52,7 +52,7 @@ final class SyncScheduler {
     }
 
     private func installBackgroundActivity() {
-        let activity = NSBackgroundActivityScheduler(identifier: "com.macsync.sync")
+        let activity = NSBackgroundActivityScheduler(identifier: "com.lumen.sync")
         activity.repeats = true
         activity.interval = 3600
         activity.tolerance = 1800

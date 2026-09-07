@@ -4,7 +4,7 @@ import Security
 
 /// AES-GCM encryption for archives, with the 256-bit key held in the Keychain.
 enum CryptoVault {
-    private static let service = "com.macsync.app.archive-key"
+    private static let service = "com.lumen.app.archive-key"
     private static let account = "archive-256"
 
     // MARK: - Keychain

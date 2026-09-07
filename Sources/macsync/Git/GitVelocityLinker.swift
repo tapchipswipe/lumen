@@ -29,6 +29,9 @@ struct GitCommitNode: Identifiable, Codable {
 }
 
 enum GitVelocityLinker {
+    private static let isoFormatter = ISO8601DateFormatter()
+    private static let lock = NSLock()
+    private static var repoCache: [String: (mtime: Date, branch: String, nodes: [GitCommitNode])] = [:]
 
     static func scanRecentCommits(since date: Date = Calendar.current.startOfDay(for: Date())) -> [GitCommitNode] {
         let home = NSHomeDirectory()
@@ -51,35 +54,50 @@ enum GitVelocityLinker {
                 let gitDir = "\(repoDir)/.git"
                 guard fm.fileExists(atPath: gitDir) else { continue }
 
-                // Query git branch
-                let branchProcess = Process()
-                branchProcess.executableURL = URL(fileURLWithPath: "/usr/bin/git")
-                branchProcess.arguments = ["-C", repoDir, "rev-parse", "--abbrev-ref", "HEAD"]
-                let branchPipe = Pipe()
-                branchProcess.standardOutput = branchPipe
-                try? branchProcess.run()
-                branchProcess.waitUntilExit()
+                // Guard against evicted / dataless iCloud Drive stubs
+                var headStat = stat()
+                let headPath = "\(gitDir)/HEAD"
+                if lstat(headPath, &headStat) == 0 {
+                    // 0x40000000 is UF_DATALESS on macOS
+                    if (headStat.st_flags & 0x40000000) != 0 {
+                        continue
+                    }
+                }
 
-                let branchData = branchPipe.fileHandleForReading.readDataToEndOfFile()
-                let branch = (String(data: branchData, encoding: .utf8) ?? "main").trimmingCharacters(in: .whitespacesAndNewlines)
+                // Check .git/HEAD and .git/logs/HEAD modification timestamp
+                let headURL = URL(fileURLWithPath: headPath)
+                let headLogsURL = URL(fileURLWithPath: "\(gitDir)/logs/HEAD")
+                let headMtime = (try? headURL.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
+                let logsMtime = (try? headLogsURL.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
+                let latestMtime = [headMtime, logsMtime].compactMap { $0 }.max() ?? Date.distantPast
 
-                // Query git log
-                let logProcess = Process()
-                logProcess.executableURL = URL(fileURLWithPath: "/usr/bin/git")
-                logProcess.arguments = [
+                lock.lock()
+                if let cached = repoCache[repoDir], cached.mtime >= latestMtime {
+                    nodes.append(contentsOf: cached.nodes)
+                    lock.unlock()
+                    continue
+                }
+                lock.unlock()
+
+                // Query git branch with safe timeout
+                guard let branchOut = safeRunGit(arguments: ["-C", repoDir, "rev-parse", "--abbrev-ref", "HEAD"]) else {
+                    continue
+                }
+                let branch = (branchOut.isEmpty ? "main" : branchOut).trimmingCharacters(in: .whitespacesAndNewlines)
+
+                // Query git log with safe timeout
+                guard let logOut = safeRunGit(arguments: [
                     "-C", repoDir, "log", "-n", "8",
                     "--pretty=format:%H|%an|%aI|%s"
-                ]
-                let logPipe = Pipe()
-                logProcess.standardOutput = logPipe
-                try? logProcess.run()
-                logProcess.waitUntilExit()
+                ]), !logOut.isEmpty else {
+                    lock.lock()
+                    repoCache[repoDir] = (mtime: latestMtime, branch: branch, nodes: [])
+                    lock.unlock()
+                    continue
+                }
 
-                let logData = logPipe.fileHandleForReading.readDataToEndOfFile()
-                guard let output = String(data: logData, encoding: .utf8), !output.isEmpty else { continue }
-
-                let lines = output.components(separatedBy: .newlines)
-                let isoFormatter = ISO8601DateFormatter()
+                let lines = logOut.components(separatedBy: .newlines)
+                var repoNodes: [GitCommitNode] = []
 
                 for l in lines {
                     let parts = l.components(separatedBy: "|")
@@ -90,7 +108,7 @@ enum GitVelocityLinker {
                     let msg = parts[3]
 
                     if let commitDate = isoFormatter.date(from: dateStr) {
-                        nodes.append(GitCommitNode(
+                        repoNodes.append(GitCommitNode(
                             repoName: entry,
                             branch: branch.isEmpty ? "main" : branch,
                             commitHash: hash,
@@ -100,9 +118,44 @@ enum GitVelocityLinker {
                         ))
                     }
                 }
+
+                lock.lock()
+                repoCache[repoDir] = (mtime: latestMtime, branch: branch, nodes: repoNodes)
+                lock.unlock()
+
+                nodes.append(contentsOf: repoNodes)
             }
         }
 
         return nodes.sorted(by: { $0.timestamp > $1.timestamp })
+    }
+
+    /// Executes a git command with a hard 2-second timeout to prevent hangs on network or cloud mounts.
+    private static func safeRunGit(arguments: [String], timeout: TimeInterval = 2.0) -> String? {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+        process.arguments = arguments
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = FileHandle.nullDevice
+
+        do {
+            try process.run()
+        } catch {
+            return nil
+        }
+
+        let deadline = Date().addingTimeInterval(timeout)
+        while process.isRunning && Date() < deadline {
+            usleep(20_000) // 20ms
+        }
+
+        if process.isRunning {
+            process.terminate()
+            return nil
+        }
+
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        return String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }

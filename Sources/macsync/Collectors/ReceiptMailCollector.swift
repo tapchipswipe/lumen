@@ -5,7 +5,7 @@ import Foundation
 /// events into the same DataStore buffer as every other collector.
 final class ReceiptMailCollector {
     private let store = DataStore.shared
-    private let queue = DispatchQueue(label: "com.macsync.receipts", qos: .utility)
+    private let queue = DispatchQueue(label: "com.lumen.receipts", qos: .utility)
     private var timer: DispatchSourceTimer?
     private var isScanning: Bool = false
 

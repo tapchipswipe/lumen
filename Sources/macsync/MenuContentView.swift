@@ -26,10 +26,10 @@ struct MenuContentView: View {
     @State private var showAddReceipt = false
     @State private var showFocusInspector = false
 
-    @AppStorage("macsync.nightPauseEnabled") private var nightPause = false
-    @AppStorage("macsync.zipArchives") private var zipArchives = true
-    @AppStorage("macsync.encryptArchives") private var encryptArchives = false
-    @AppStorage("macsync.receiptCaptureEnabled") private var receiptCapture = false
+    @AppStorage("lumen.nightPauseEnabled") private var nightPause = false
+    @AppStorage("lumen.zipArchives") private var zipArchives = true
+    @AppStorage("lumen.encryptArchives") private var encryptArchives = false
+    @AppStorage("lumen.receiptCaptureEnabled") private var receiptCapture = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -355,7 +355,7 @@ struct MenuContentView: View {
             }
             let items = appState.stats.insights
             if items.isEmpty && appState.stats.anomaly == nil {
-                Text("Nothing notable yet — keep using your Mac and macsync will spot patterns.")
+                Text("Nothing notable yet — keep using your Mac and Lumen will spot patterns.")
                     .font(.system(size: 11)).foregroundStyle(.white.opacity(0.4))
                     .fixedSize(horizontal: false, vertical: true)
             } else {
@@ -900,8 +900,8 @@ struct MenuContentView: View {
                     .toggleStyle(.switch).controlSize(.mini).font(.system(size: 12))
                 Toggle("Encrypt archives (AES-256)", isOn: $encryptArchives)
                 Toggle("Log Mail sender names", isOn: Binding(
-                    get: { UserDefaults.standard.bool(forKey: "macsync.mailSenderNames") },
-                    set: { UserDefaults.standard.set($0, forKey: "macsync.mailSenderNames") }
+                    get: { UserDefaults.standard.bool(forKey: "lumen.mailSenderNames") },
+                    set: { UserDefaults.standard.set($0, forKey: "lumen.mailSenderNames") }
                 ))
                 .toggleStyle(.switch).controlSize(.mini).font(.system(size: 12))
                 Toggle("Launch at Login", isOn: Binding(

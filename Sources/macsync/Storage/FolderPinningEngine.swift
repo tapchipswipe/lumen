@@ -23,7 +23,7 @@ public struct PinnedFolderRule: Identifiable, Codable {
 }
 
 public enum FolderPinningEngine {
-    private static let storageKey = "macsync.storage.pinnedFolders"
+    private static let storageKey = "lumen.storage.pinnedFolders"
 
     public static func loadRules() -> [PinnedFolderRule] {
         guard let data = UserDefaults.standard.data(forKey: storageKey),

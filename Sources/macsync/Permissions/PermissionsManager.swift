@@ -42,11 +42,11 @@ final class PermissionsManager {
     /// Runs once on first launch. After the user has been shown the onboarding
     /// flow, subsequent launches stay silent.
     func runOnboardingIfNeeded(locationTracker: LocationTracker) {
-        let onboarded = UserDefaults.standard.bool(forKey: "macsync.onboarded")
+        let onboarded = UserDefaults.standard.bool(forKey: "lumen.onboarded")
         if !onboarded {
             requestAccessibility()
             requestScreenRecording()
-            UserDefaults.standard.set(true, forKey: "macsync.onboarded")
+            UserDefaults.standard.set(true, forKey: "lumen.onboarded")
             if !allCriticalGranted {
                 Task { @MainActor in OnboardingWindowController.shared.show(permissions: self) }
             }

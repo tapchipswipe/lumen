@@ -130,7 +130,7 @@ enum AggregatorTests {
 enum CryptoTests {
     static func run() {
         let key = SymmetricKey(size: .bits256)
-        let secret = Data("macsync archive test payload 🔒".utf8)
+        let secret = Data("lumen archive test payload 🔒".utf8)
         do {
             let sealed = try CryptoVault.seal(secret, key: key)
             expect(sealed != secret, "ciphertext differs")
@@ -145,7 +145,7 @@ enum CategoryTests {
         expect(ActivityCategory.forApp("Xcode") == .code, "Xcode → Code")
         expect(ActivityCategory.forApp("Slack") == .comms, "Slack → Comms")
         expect(ActivityCategory.forApp("Figma") == .design, "Figma → Design")
-        expect(ActivityCategory.forURL("https://github.com/tapchipswipe/macsync") == .code, "github → Code (#3)")
+        expect(ActivityCategory.forURL("https://github.com/tapchipswipe/lumen") == .code, "github → Code (#3)")
         expect(ActivityCategory.forURL("https://youtube.com/watch") == .media, "youtube → Media")
     }
 }

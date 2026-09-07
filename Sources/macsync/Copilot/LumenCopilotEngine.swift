@@ -107,7 +107,7 @@ enum LumenCopilotEngine {
                 title: "Git Commit & Output Velocity",
                 answer: "You have shipped \(count) commits across local repositories today.",
                 bulletPoints: [
-                    "Latest Commit: \(latest?.repoName ?? "macsync") · \"\(latest?.message ?? "Initial commit")\"",
+                    "Latest Commit: \(latest?.repoName ?? "Lumen") · \"\(latest?.message ?? "Initial commit")\"",
                     "Active Branch: \(latest?.branch ?? "main")",
                     "Hash: \(latest?.shortHash ?? "e1f03ad")",
                     "Total Repos Active: \(Set(commits.map { $0.repoName }).count)"

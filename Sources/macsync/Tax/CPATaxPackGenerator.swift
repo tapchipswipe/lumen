@@ -16,7 +16,7 @@ public final class CPATaxPackGenerator {
 
     static func generateTaxPack(year: Int = 2026, receipts: [ReceiptPayload]) -> TaxPackResult {
         let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
-        let spendDir = docs.appendingPathComponent("macsync-spend", isDirectory: true)
+        let spendDir = docs.appendingPathComponent("lumen-spend", isDirectory: true)
         let packDir = spendDir.appendingPathComponent("CPA_Tax_Pack_\(year)", isDirectory: true)
         
         try? FileManager.default.createDirectory(at: packDir, withIntermediateDirectories: true)

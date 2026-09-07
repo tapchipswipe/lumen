@@ -27,7 +27,7 @@ public final class MobileDataStore {
         rootDir = docs.appendingPathComponent("LumenMobile", isDirectory: true)
         bufferDir = rootDir.appendingPathComponent("buffer", isDirectory: true)
         archiveDir = rootDir.appendingPathComponent("archive", isDirectory: true)
-        exportDir = docs.appendingPathComponent("macsync_exports", isDirectory: true)
+        exportDir = docs.appendingPathComponent("lumen_exports", isDirectory: true)
 
         for dir in [rootDir, bufferDir, archiveDir, exportDir] {
             try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -98,7 +98,7 @@ public final class MobileDataStore {
             try? combined.write(to: file, options: .atomic)
         }
 
-        // Also update the browsable export file in Documents/macsync_exports
+        // Also update the browsable export file in Documents/lumen_exports
         let exportFile = exportDir.appendingPathComponent("events-\(day)-iphone.jsonl")
         if FileManager.default.fileExists(atPath: file.path) {
             try? FileManager.default.removeItem(at: exportFile)
@@ -139,7 +139,7 @@ public final class MobileDataStore {
         guard FileManager.default.fileExists(atPath: src.path) else { return true }
 
         // Safely check iCloud Ubiquity Container (returns nil on Free Apple ID profiles)
-        if let cloudURL = FileManager.default.url(forUbiquityContainerIdentifier: "iCloud.com.lumen.app")?.appendingPathComponent("Documents/macsync/buffer") {
+        if let cloudURL = FileManager.default.url(forUbiquityContainerIdentifier: "iCloud.com.lumen.app")?.appendingPathComponent("Documents/Lumen/buffer") {
             do {
                 try FileManager.default.createDirectory(at: cloudURL, withIntermediateDirectories: true)
                 let dest = cloudURL.appendingPathComponent("events-\(day)-iphone.jsonl")

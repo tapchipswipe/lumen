@@ -150,7 +150,7 @@ public final class P2PSyncHost: ObservableObject {
         let snap = PowerPacingEngine.captureSnapshot()
         let commits = GitVelocityLinker.scanRecentCommits()
         let activeBranch = commits.first?.branch ?? "main"
-        let activeRepo = commits.first?.repoName ?? "macsync"
+        let activeRepo = commits.first?.repoName ?? "Lumen"
         
         DispatchQueue.main.async {
             let focus = AppState.shared.stats.focusScore

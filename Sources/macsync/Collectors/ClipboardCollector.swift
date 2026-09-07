@@ -6,7 +6,7 @@ import Foundation
 /// stored, in line with the keystroke-counting privacy model.
 final class ClipboardCollector {
     private let store = DataStore.shared
-    private let queue = DispatchQueue(label: "com.macsync.clipboard", qos: .utility)
+    private let queue = DispatchQueue(label: "com.lumen.clipboard", qos: .utility)
     private var timer: DispatchSourceTimer?
     private var lastChangeCount: Int = 0
     private var pendingCopies: Int = 0

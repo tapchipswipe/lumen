@@ -1,7 +1,7 @@
 import OSLog
 
 enum Log {
-    static let subsystem = "com.macsync.app"
+    static let subsystem = "com.lumen.app"
     static let app = Logger(subsystem: subsystem, category: "app")
     static let collectors = Logger(subsystem: subsystem, category: "collectors")
     static let sync = Logger(subsystem: subsystem, category: "sync")

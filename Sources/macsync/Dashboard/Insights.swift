@@ -85,7 +85,17 @@ struct DayPoint: Identifiable {
 }
 
 struct HistoryLoader {
-    /// Load events persisted in the local archive (past synced days).
+    private static let lock = NSLock()
+    private static var eventCache: [String: [TrackerEvent]] = [:]
+
+    /// Clears the memory cache when archives are pruned or synced.
+    static func invalidateCache() {
+        lock.lock()
+        eventCache.removeAll()
+        lock.unlock()
+    }
+
+    /// Load events persisted in the local archive (past synced days) with in-memory caching.
     static func archivedEvents(daysBack: Int) -> [(day: String, events: [TrackerEvent])] {
         let fm = FileManager.default
         let dir = DataStore.shared.archiveDir
@@ -97,10 +107,24 @@ struct HistoryLoader {
             guard let date = SyncFormat.dayFormatter.date(from: day),
                   let age = cal.dateComponents([.day], from: cal.startOfDay(for: date), to: cal.startOfDay(for: Date())).day,
                   age >= 1, age <= daysBack else { continue }
+            
+            lock.lock()
+            if let cached = eventCache[day] {
+                lock.unlock()
+                if !cached.isEmpty { out.append((day, cached)) }
+                continue
+            }
+            lock.unlock()
+
             guard let data = try? Data(contentsOf: dir.appendingPathComponent(name)) else { continue }
             let events = data.split(separator: 0x0A).compactMap {
                 try? SyncFormat.jsonDecoder.decode(TrackerEvent.self, from: Data($0))
             }
+            
+            lock.lock()
+            eventCache[day] = events
+            lock.unlock()
+
             if !events.isEmpty { out.append((day, events)) }
         }
         return out

@@ -1,7 +1,7 @@
 // resync_2026_receipts.swift
 //
 // One-off CLI that backfills 2026 purchase receipts from Apple Mail into the
-// same ~/Library/Application Support/macsync buffer as the running Lumen app,
+// same ~/Library/Application Support/Lumen buffer as the running Lumen app,
 // and optionally exports the merged 2026 ledger to CSV.
 //
 // Why a script instead of the app's built-in Rescan:
@@ -23,7 +23,7 @@
 //       Sources/macsync/Spend/ReceiptParser.swift \
 //       Sources/macsync/Spend/ReceiptCategorizer.swift \
 //       -o /tmp/resync_2026_receipts
-//   /tmp/resync_2026_receipts --export "$HOME/Documents/macsync-spend/macsync-receipts-2026.csv"
+//   /tmp/resync_2026_receipts --export "$HOME/Documents/lumen-spend/lumen-receipts-2026.csv"
 //
 // Automation consent: first run will prompt for permission to control "Mail"
 // (the same TCC grant the app already has).
@@ -71,7 +71,7 @@ struct Options {
 func defaultStoreRoot() -> String {
     let fm = FileManager.default
     let appSupport = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-    return appSupport.appendingPathComponent("macsync", isDirectory: true).path
+    return appSupport.appendingPathComponent("Lumen", isDirectory: true).path
 }
 
 let ARGS = Array(CommandLine.arguments.dropFirst())
