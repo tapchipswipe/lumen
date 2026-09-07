@@ -142,3 +142,13 @@ echo ""
 echo "==> BUILD COMPLETE"
 echo "    Installed: /Applications/$APP_NAME.app"
 echo "    DMG: $DMG_PATH ($(du -h "$DMG_PATH" | cut -f1 | tr -d ' '))"
+
+# Auto-sync MEMORY.md, AGENTS.md, GEMINI.md to iCloud agent_context
+ICLOUD_AGENT_DIR="$HOME/Library/Mobile Documents/com~apple~CloudDocs/Lumen/agent_context"
+if [ -d "$HOME/Library/Mobile Documents/com~apple~CloudDocs" ]; then
+    mkdir -p "$ICLOUD_AGENT_DIR"
+    cp "$PROJECT_DIR/MEMORY.md" "$ICLOUD_AGENT_DIR/MEMORY.md" 2>/dev/null || true
+    cp "$PROJECT_DIR/README.md" "$ICLOUD_AGENT_DIR/README.md" 2>/dev/null || true
+    cp /Users/lucasdespot/AGENTS.md "$ICLOUD_AGENT_DIR/AGENTS.md" 2>/dev/null || true
+    echo "    iCloud Context: Synchronized ($ICLOUD_AGENT_DIR)"
+fi
